@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import openpyxl
+from io import BytesIO
 
 # Enhanced import handling with user feedback
 try:
@@ -180,9 +181,14 @@ def main():
             'Exchange': [None, None, 'KS']
         })
         st.dataframe(example_df, hide_index=True)
+        
+        # --- FIXED: write example file to buffer for download ---
+        buffer = BytesIO()
+        example_df.to_excel(buffer, index=False, engine='openpyxl')
+        buffer.seek(0)
         st.download_button(
             label="Download Example File",
-            data=example_df.to_excel("example_tickers.xlsx", index=False),
+            data=buffer.getvalue(),
             file_name="example_tickers.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
