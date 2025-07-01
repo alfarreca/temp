@@ -5,60 +5,71 @@ from datetime import datetime, timedelta
 import tempfile
 import os
 
-# App title
-st.title('Ticker Price Change Tracker')
+# App title and description
+st.title('📈 Ticker Price Change Tracker')
+st.markdown("Track weekly price changes for your stock tickers")
 
-# Function to get previous Monday (or current day if Monday)
-def get_previous_monday(date):
-    return date - timedelta(days=date.weekday())
+# Configure yfinance
+yf.pdr_override()
 
-# Function to calculate proper trading weeks (Monday to Friday)
-def get_week_dates(weeks_back):
-    today = datetime.now()
-    end_date = get_previous_monday(today) - timedelta(weeks=weeks_back-1)
-    start_date = end_date - timedelta(weeks=1)
-    # Adjust to show Monday-Friday weeks (5 trading days)
-    return start_date, end_date - timedelta(days=2)  # Subtract 2 days to get Friday
-
-# Function to get price change for a period
-def get_price_change(ticker, start_date, end_date):
+# Cache data to prevent repeated downloads
+@st.cache_data(ttl=3600)
+def download_ticker(ticker, start, end):
     try:
-        data = yf.download(ticker, start=start_date, end=end_date + timedelta(days=1), progress=False)
-        if len(data) > 0:
-            start_price = data['Close'].iloc[0]
-            end_price = data['Close'].iloc[-1]
-            return (end_price - start_price) / start_price * 100
+        data = yf.download(
+            ticker,
+            start=start,
+            end=end + timedelta(days=1),  # Ensure we get the end date
+            progress=False,
+            threads=True
+        )
+        if not data.empty:
+            return data
         return None
     except Exception as e:
         st.warning(f"Error fetching {ticker}: {str(e)}")
         return None
+
+# Function to get proper trading weeks (Monday to Friday)
+def get_week_dates(weeks_back):
+    today = datetime.now()
+    last_friday = today - timedelta(days=(today.weekday() + 3) % 7)
+    end_date = last_friday - timedelta(weeks=weeks_back-1)
+    start_date = end_date - timedelta(days=4)  # Monday of that week
+    return start_date, end_date
 
 # File uploader
 uploaded_file = st.file_uploader("Upload Excel file with tickers", type=['xlsx'])
 
 if uploaded_file is not None:
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_file_path = tmp_file.name
-        
-        df_tickers = pd.read_excel(tmp_file_path)
-        os.unlink(tmp_file_path)
+        # Read the Excel file
+        df_tickers = pd.read_excel(uploaded_file)
         
         if 'Symbol' not in df_tickers.columns:
             st.error("The Excel file must contain a 'Symbol' column")
             st.stop()
             
-        exchange_col = df_tickers['Exchange'] if 'Exchange' in df_tickers.columns else None
         tickers = df_tickers['Symbol'].dropna().astype(str).unique()
         
         if len(tickers) > 0:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
             
-            if st.button('Fetch Price Changes'):
+            # Add troubleshooting options
+            with st.expander("⚙️ Advanced Options"):
+                st.write("Try these if you're getting N/A results:")
+                retry = st.checkbox("Retry with force download", True)
+                add_suffix = st.checkbox("Try adding common exchange suffixes", False)
+                suffixes = st.multiselect(
+                    "Select suffixes to try",
+                    ['.TO', '.NS', '.L', '.DE', '.PA', '.AS', '.BR'],
+                    ['.TO']
+                )
+            
+            if st.button('🚀 Fetch Price Changes', type='primary'):
                 with st.spinner('Fetching data from Yahoo Finance...'):
                     results = pd.DataFrame(index=tickers)
-                    failed_tickers = []
+                    debug_info = []
                     
                     for week in range(1, 7):
                         start_date, end_date = get_week_dates(week)
@@ -66,43 +77,80 @@ if uploaded_file is not None:
                         
                         changes = []
                         for ticker in tickers:
-                            full_ticker = f"{ticker}.{exchange_col[df_tickers['Symbol'] == ticker].iloc[0]}" if exchange_col is not None else ticker
-                            change = get_price_change(full_ticker, start_date, end_date)
-                            if change is None and week == 1:
-                                failed_tickers.append(ticker)
-                            changes.append(change)
+                            # Try different variations if enabled
+                            ticker_variations = [ticker]
+                            if add_suffix:
+                                ticker_variations.extend([f"{ticker}{suffix}" for suffix in suffixes])
+                            
+                            found_data = False
+                            for t in ticker_variations:
+                                data = download_ticker(t, start_date, end_date)
+                                if data is not None and not data.empty:
+                                    start_price = data['Close'].iloc[0]
+                                    end_price = data['Close'].iloc[-1]
+                                    change = (end_price - start_price) / start_price * 100
+                                    changes.append(change)
+                                    debug_info.append({
+                                        'ticker': ticker,
+                                        'variation': t,
+                                        'week': week,
+                                        'status': 'success'
+                                    })
+                                    found_data = True
+                                    break
+                                else:
+                                    debug_info.append({
+                                        'ticker': ticker,
+                                        'variation': t,
+                                        'week': week,
+                                        'status': 'failed'
+                                    })
+                            
+                            if not found_data:
+                                changes.append(None)
                         
                         results[f'Week {week}'] = changes
                         results[f'Week {week} Dates'] = week_label
                     
                     # Display results
-                    st.subheader('Weekly Price Changes (%)')
+                    st.subheader('📅 Weekly Price Changes (%)')
                     
                     display_df = results[[f'Week {i}' for i in range(1, 7)]].copy()
                     display_df.columns = [f'Week {i}' for i in range(1, 7)]
                     display_df.index = tickers
                     
-                    def format_percent(x):
-                        return f"{x:.2f}%" if pd.notnull(x) else "N/A"
+                    # Format and style the dataframe
+                    def color_negative_red(val):
+                        if isinstance(val, (int, float)):
+                            color = 'red' if val < 0 else 'green'
+                            return f'color: {color}; font-weight: bold'
+                        return ''
                     
-                    st.dataframe(display_df.applymap(format_percent))
+                    styled_df = display_df.style.format("{:.2f}%", na_rep="N/A").applymap(color_negative_red)
+                    st.dataframe(styled_df)
                     
                     # Show date ranges
-                    st.caption("Accurate trading weeks (Monday open to Friday close):")
+                    st.caption("📆 Trading weeks (Monday to Friday):")
                     for i in range(1, 7):
                         st.caption(f"Week {i}: {results[f'Week {i} Dates'].iloc[0]}")
                     
-                    if failed_tickers:
-                        st.warning(f"Could not fetch data for: {', '.join(set(failed_tickers))}. "
-                                  "Some tickers may need exchange suffixes (e.g. '.TO' for Toronto).")
+                    # Show debug information
+                    debug_df = pd.DataFrame(debug_info)
+                    failed_tickers = debug_df[(debug_df['status'] == 'failed') & 
+                                           (debug_df['week'] == 1)]['ticker'].unique()
                     
-                    csv = results.to_csv(index=True).encode('utf-8')
+                    if len(failed_tickers) > 0:
+                        st.warning(f"⚠️ Could not fetch data for: {', '.join(failed_tickers)}")
+                        with st.expander("Debug details"):
+                            st.write("Tried these variations:")
+                            st.dataframe(debug_df.groupby(['ticker', 'variation'])['status'].value_counts())
+                    
+                    # Download options
                     st.download_button(
-                        "Download Results as CSV",
-                        csv,
+                        "💾 Download Results as CSV",
+                        results.to_csv(index=True).encode('utf-8'),
                         "ticker_price_changes.csv",
-                        "text/csv",
-                        key='download-csv'
+                        "text/csv"
                     )
         else:
             st.error("No tickers found in the uploaded file.")
@@ -110,4 +158,4 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
 else:
-    st.info("Please upload an Excel file with at least a 'Symbol' column.")
+    st.info("ℹ️ Please upload an Excel file with at least a 'Symbol' column")
