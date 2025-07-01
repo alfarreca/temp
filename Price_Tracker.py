@@ -29,7 +29,7 @@ def download_ticker(ticker, start, end, max_retries=3):
             )
             if not data.empty:
                 return data
-        except Exception as e:
+        except Exception:
             if attempt == max_retries - 1:
                 st.warning(f"Failed to fetch {ticker} after {max_retries} attempts")
             continue
@@ -61,7 +61,6 @@ if uploaded_file is not None:
                     ['.TO', '.NS', '.L', '.DE', '.PA', '.AS', '.BR', '.AX', '.SI', '.KS'],
                     ['.TO', '.NS', '.L']
                 )
-                st.caption("Note: Some tickers might need different suffixes (e.g., '.OL' for Oslo)")
             
             if st.button('🚀 Fetch Price Changes', type='primary'):
                 progress_bar = st.progress(0)
@@ -122,21 +121,36 @@ if uploaded_file is not None:
                 progress_bar.empty()
                 status_text.empty()
                 
-                # Display results
+                # Display results - FIXED FORMATTING HERE
                 st.subheader('📅 Weekly Price Changes (%)')
                 
+                # Create display dataframe
                 display_df = results[[f'Week {i}' for i in range(1, 7)]].copy()
                 display_df.columns = [f'Week {i}' for i in range(1, 7)]
                 display_df.index = tickers
                 
-                # Format and style the dataframe
+                # Format percentages safely
+                def format_percent(x):
+                    try:
+                        return f"{float(x):.2f}%" if pd.notnull(x) else "N/A"
+                    except:
+                        return "N/A"
+                
+                formatted_df = display_df.applymap(format_percent)
+                
+                # Color formatting
                 def color_negative_red(val):
-                    if isinstance(val, (int, float)):
-                        color = 'red' if val < 0 else 'green'
-                        return f'color: {color}; font-weight: bold'
+                    if val != "N/A":
+                        try:
+                            val_num = float(val.strip('%'))
+                            color = 'red' if val_num < 0 else 'green'
+                            return f'color: {color}; font-weight: bold'
+                        except:
+                            return ''
                     return ''
                 
-                styled_df = display_df.style.format("{:.2f}%", na_rep="N/A").applymap(color_negative_red)
+                # Apply styling
+                styled_df = formatted_df.style.applymap(color_negative_red)
                 st.dataframe(styled_df)
                 
                 # Show date ranges
@@ -154,13 +168,6 @@ if uploaded_file is not None:
                     with st.expander("Debug details"):
                         st.write("Tried these variations:")
                         st.dataframe(debug_df.groupby(['ticker', 'variation'])['status'].value_counts())
-                        st.write("Tips:")
-                        st.markdown("""
-                        - Check if tickers need different exchange suffixes
-                        - Verify tickers exist on Yahoo Finance
-                        - Some ETFs/funds might have different symbols
-                        - Try searching for the ticker on finance.yahoo.com
-                        """)
                 
                 # Download options
                 st.download_button(
