@@ -70,15 +70,17 @@ def get_weekly_prices(ticker, week_boundaries):
                 ticker, 
                 start=start_date, 
                 end=end_date + timedelta(days=1),
-                progress=False
+                progress=False,
+                auto_adjust=True  # Silence the future warning
             )
             if not data.empty:
                 weekly_close = data['Adj Close'].iloc[-1]
                 prices.append(round(weekly_close, 2))
             else:
+                st.warning(f"⚠️ No data found for {ticker} (possibly delisted or invalid)")
                 prices.append(None)
         except Exception as e:
-            st.error(f"Error fetching data for {ticker}: {str(e)}")
+            st.warning(f"⚠️ Error fetching data for {ticker}: {str(e)}")
             prices.append(None)
     return prices
 
@@ -122,19 +124,23 @@ def display_visualizations(price_df, week_labels):
             heatmap_data = price_df.set_index('Ticker')[pct_cols]
             heatmap_data.columns = [col.replace('_pct', '') for col in heatmap_data.columns]
             
-            # Plot heatmap
-            fig, ax = plt.subplots(figsize=(12, max(6, len(heatmap_data) * 0.5)))
-            sns.heatmap(
-                heatmap_data,
-                annot=True,
-                fmt=".1f",
-                cmap="RdYlGn",
-                center=0,
-                linewidths=0.5,
-                ax=ax
-            )
-            ax.set_title("Weekly Price Change Percentage (%)")
-            st.pyplot(fig, use_container_width=True)
+            # Drop all-NaN rows for cleaner heatmap
+            heatmap_data = heatmap_data.dropna(how='all')
+            if heatmap_data.empty:
+                st.warning("No valid percentage change data available for heatmap.")
+            else:
+                fig, ax = plt.subplots(figsize=(12, max(6, len(heatmap_data) * 0.5)))
+                sns.heatmap(
+                    heatmap_data,
+                    annot=True,
+                    fmt=".1f",
+                    cmap="RdYlGn",
+                    center=0,
+                    linewidths=0.5,
+                    ax=ax
+                )
+                ax.set_title("Weekly Price Change Percentage (%)")
+                st.pyplot(fig, use_container_width=True)
         
         with tab2:
             st.subheader("Performance Analysis")
@@ -223,8 +229,15 @@ def main():
             status_text = st.empty()
             ticker_data = []
             
+            us_exchanges = ['', None, 'NYSE', 'NASDAQ', 'AMEX']
+
             for idx, row in df.iterrows():
-                ticker = f"{row['Symbol']}.{row['Exchange']}" if row['Exchange'] else row['Symbol']
+                exchange = str(row['Exchange']).upper().strip() if pd.notna(row['Exchange']) else ''
+                symbol = str(row['Symbol']).strip()
+                if exchange in us_exchanges:
+                    ticker = symbol
+                else:
+                    ticker = f"{symbol}.{exchange}"
                 status_text.text(f"Fetching data for {ticker} ({idx+1}/{len(df)})...")
                 prices = get_weekly_prices(ticker, week_boundaries)
                 ticker_data.append([ticker] + prices)
@@ -239,7 +252,7 @@ def main():
             # Display the main price table
             st.subheader("📊 Weekly Price Changes")
             st.dataframe(
-                price_df.style.applymap(style_dataframe, subset=week_labels[1:]),
+                price_df.style.map(style_dataframe, subset=week_labels[1:]),
                 use_container_width=True,
                 hide_index=True
             )
