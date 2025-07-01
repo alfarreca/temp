@@ -33,11 +33,15 @@ uploaded_file = st.file_uploader("Upload Excel file with tickers", type=['xlsx']
 if uploaded_file is not None:
     try:
         df_tickers = pd.read_excel(uploaded_file)
-        if 'Symbol' not in df_tickers.columns:
-            st.error("The Excel file must contain a 'Symbol' column")
+        st.write(f"File columns detected: {list(df_tickers.columns)}")
+        columns = [str(c).strip() for c in df_tickers.columns]
+        if 'Symbol' not in columns:
+            st.error("The Excel file must contain a column named exactly 'Symbol' (case sensitive).")
             st.stop()
 
-        tickers = df_tickers['Symbol'].dropna().astype(str).str.upper().unique()
+        # Get the actual column name in case of whitespace
+        symbol_col = [c for c in df_tickers.columns if c.strip() == 'Symbol'][0]
+        tickers = df_tickers[symbol_col].dropna().astype(str).str.upper().unique()
 
         if len(tickers) > 0:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
