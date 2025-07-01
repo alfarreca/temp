@@ -8,16 +8,22 @@ import os
 # App title
 st.title('Ticker Price Change Tracker')
 
-# Function to calculate weeks (FIXED - now returns proper date ranges)
-def get_week_dates(weeks_back):
-    end_date = datetime.now() - timedelta(weeks=weeks_back-1)
-    start_date = end_date - timedelta(weeks=1)
-    return start_date, end_date
+# Function to get previous Monday (or current day if Monday)
+def get_previous_monday(date):
+    return date - timedelta(days=date.weekday())
 
-# Improved price change function with better error handling
+# Function to calculate proper trading weeks (Monday to Friday)
+def get_week_dates(weeks_back):
+    today = datetime.now()
+    end_date = get_previous_monday(today) - timedelta(weeks=weeks_back-1)
+    start_date = end_date - timedelta(weeks=1)
+    # Adjust to show Monday-Friday weeks (5 trading days)
+    return start_date, end_date - timedelta(days=2)  # Subtract 2 days to get Friday
+
+# Function to get price change for a period
 def get_price_change(ticker, start_date, end_date):
     try:
-        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+        data = yf.download(ticker, start=start_date, end=end_date + timedelta(days=1), progress=False)
         if len(data) > 0:
             start_price = data['Close'].iloc[0]
             end_price = data['Close'].iloc[-1]
@@ -62,7 +68,7 @@ if uploaded_file is not None:
                         for ticker in tickers:
                             full_ticker = f"{ticker}.{exchange_col[df_tickers['Symbol'] == ticker].iloc[0]}" if exchange_col is not None else ticker
                             change = get_price_change(full_ticker, start_date, end_date)
-                            if change is None and week == 1:  # Only track failures on first attempt
+                            if change is None and week == 1:
                                 failed_tickers.append(ticker)
                             changes.append(change)
                         
@@ -82,16 +88,14 @@ if uploaded_file is not None:
                     st.dataframe(display_df.applymap(format_percent))
                     
                     # Show date ranges
-                    st.caption("Date ranges for each week:")
+                    st.caption("Accurate trading weeks (Monday open to Friday close):")
                     for i in range(1, 7):
                         st.caption(f"Week {i}: {results[f'Week {i} Dates'].iloc[0]}")
                     
-                    # Show warnings for failed tickers
                     if failed_tickers:
                         st.warning(f"Could not fetch data for: {', '.join(set(failed_tickers))}. "
-                                  "Please check if tickers need exchange suffixes (e.g. '.TO' for Toronto).")
+                                  "Some tickers may need exchange suffixes (e.g. '.TO' for Toronto).")
                     
-                    # Download button
                     csv = results.to_csv(index=True).encode('utf-8')
                     st.download_button(
                         "Download Results as CSV",
