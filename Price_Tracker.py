@@ -45,15 +45,15 @@ if uploaded_file is not None:
         os.unlink(tmp_file_path)
         
         # Check if required columns exist
-        if 'Simbol' not in df_tickers.columns:
-            st.error("The Excel file must contain a 'Simbol' column")
+        if 'Symbol' not in df_tickers.columns:
+            st.error("The Excel file must contain a 'Symbol' column")
             st.stop()
             
         # Get exchange column if available
         exchange_col = df_tickers['Exchange'] if 'Exchange' in df_tickers.columns else None
         
         # Get tickers
-        tickers = df_tickers['Simbol'].dropna().astype(str).unique()
+        tickers = df_tickers['Symbol'].dropna().astype(str).unique()
         
         if len(tickers) > 0:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
@@ -73,7 +73,7 @@ if uploaded_file is not None:
                         changes = []
                         for ticker in tickers:
                             # Add exchange if available and needed (e.g., for international tickers)
-                            full_ticker = f"{ticker}.{exchange_col[df_tickers['Simbol'] == ticker].iloc[0]}" if exchange_col is not None else ticker
+                            full_ticker = f"{ticker}.{exchange_col[df_tickers['Symbol'] == ticker].iloc[0]}" if exchange_col is not None else ticker
                             change = get_price_change(full_ticker, start_date, end_date)
                             changes.append(change)
                         
@@ -88,7 +88,7 @@ if uploaded_file is not None:
                     display_df.columns = [f'Week {i}' for i in range(1, 7)]
                     display_df.index = tickers
                     
-                    # Format percentages - fixed approach
+                    # Format percentages
                     def format_percent(x):
                         return f"{x:.2f}%" if pd.notnull(x) else "N/A"
                     
@@ -117,4 +117,4 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
 else:
-    st.info("Please upload an Excel file with at least a 'Simbol' column.")
+    st.info("Please upload an Excel file with at least a 'Symbol' column.")
