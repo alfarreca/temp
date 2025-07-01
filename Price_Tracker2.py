@@ -1,278 +1,49 @@
 import streamlit as st
 import pandas as pd
+import yfinance as yf
 from datetime import datetime, timedelta
-import openpyxl
-from io import BytesIO
 
-# Enhanced import handling with user feedback
-try:
-    import yfinance as yf
-    YF_AVAILABLE = True
-except ImportError:
-    YF_AVAILABLE = False
-    st.error("❌ yfinance package not installed. Please run: pip install yfinance")
-    st.stop()
+# Streamlit app title
+st.title("📈 Weekly Price Tracker")
 
-try:
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    VIZ_AVAILABLE = True
-except ImportError:
-    VIZ_AVAILABLE = False
-    st.warning("⚠️ Visualization features disabled - matplotlib or seaborn not installed")
+# File uploader
+uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
-# Set page config
-st.set_page_config(
-    page_title="Stock Price Tracker", 
-    layout="wide",
-    page_icon="📈"
-)
+if uploaded_file:
+    tickers_df = pd.read_excel(uploaded_file)
 
-# Custom CSS for better styling
-st.markdown("""
-    <style>
-        .main {padding: 2rem;}
-        .stDataFrame {width: 100%;}
-        .positive {color: #4CAF50; font-weight: bold;}
-        .negative {color: #F44336; font-weight: bold;}
-        .header {font-size: 1.5rem; margin-bottom: 1rem;}
-        .info-text {color: #666; font-size: 0.9rem;}
-        .small-font {font-size: 0.8rem;}
-        .ticker-header {background-color: #f0f2f6; border-radius: 5px; padding: 0.5rem;}
-    </style>
-""", unsafe_allow_html=True)
+    if not all(col in tickers_df.columns for col in ["Symbol", "Exchange"]):
+        st.error("Excel file must contain 'Symbol' and 'Exchange' columns.")
+    else:
+        symbols = tickers_df["Symbol"].tolist()
 
-def get_week_boundaries(weeks_back=6):
-    """Get the start and end dates for the last N weeks (Monday to Friday)"""
-    today = datetime.today()
-    week_boundaries = []
-    
-    for i in range(weeks_back):
-        days_to_last_monday = today.weekday()  # Monday is 0, Sunday is 6
-        end_date = today - timedelta(days=days_to_last_monday + (6 - today.weekday()))
-        start_date = end_date - timedelta(days=4)  # Go back to Monday
-        
-        # Adjust if we're in the current week (only show up to today)
-        if i == 0 and end_date > today:
-            end_date = today
-        
-        week_boundaries.append((start_date, end_date))
-        today = start_date - timedelta(days=1)  # Move to previous week
-    
-    return list(reversed(week_boundaries))  # Return in chronological order
+        # Calculate the most recent Monday to align weeks
+        today = datetime.today()
+        recent_monday = today - timedelta(days=today.weekday())
 
-def get_weekly_prices(ticker, week_boundaries):
-    """Get weekly closing prices for a ticker with error handling"""
-    prices = []
-    for start_date, end_date in week_boundaries:
-        try:
-            data = yf.download(
-                ticker, 
-                start=start_date, 
-                end=end_date + timedelta(days=1),
-                progress=False,
-                auto_adjust=True  # Silence the future warning
-            )
-            if not data.empty:
-                weekly_close = data['Adj Close'].iloc[-1]
-                prices.append(round(weekly_close, 2))
-            else:
-                st.warning(f"⚠️ No data found for {ticker} (possibly delisted or invalid)")
-                prices.append(None)
-        except Exception as e:
-            st.warning(f"⚠️ Error fetching data for {ticker}: {str(e)}")
-            prices.append(None)
-    return prices
+        # Fetch weekly data for the past 6 weeks
+        start_date = recent_monday - timedelta(weeks=6)
+        end_date = recent_monday
 
-def calculate_weekly_changes(df, week_labels):
-    """Calculate weekly price changes and percentages"""
-    for i in range(1, len(week_labels)):
-        prev_col = week_labels[i-1]
-        current_col = week_labels[i]
-        
-        # Calculate absolute change
-        df[f'{current_col}_change'] = df[current_col] - df[prev_col]
-        
-        # Calculate percentage change
-        df[f'{current_col}_pct'] = (df[current_col] - df[prev_col]) / df[prev_col] * 100
-    
-    return df
+        data = {}
+        for symbol in symbols:
+            try:
+                ticker_data = yf.download(symbol, start=start_date, end=end_date, interval="1wk")['Close']
+                if ticker_data.empty:
+                    st.warning(f"No data for ticker {symbol}")
+                    continue
+                data[symbol] = ticker_data[-6:].values
+            except Exception as e:
+                st.warning(f"Error fetching data for ticker {symbol}: {e}")
 
-def style_dataframe(val):
-    """Style DataFrame cells based on value"""
-    if isinstance(val, (float, int)):
-        if val > 0:
-            return 'color: #4CAF50'
-        elif val < 0:
-            return 'color: #F44336'
-    return ''
+        # Constructing DataFrame
+        if data:
+            price_df = pd.DataFrame(data).T
+            price_df.columns = [(recent_monday - timedelta(weeks=i)).strftime('%Y-%m-%d') for i in reversed(range(6))]
+            price_df.reset_index(inplace=True)
+            price_df.rename(columns={'index': 'Symbol'}, inplace=True)
 
-def display_visualizations(price_df, week_labels):
-    """Display visualizations if packages are available"""
-    if not VIZ_AVAILABLE:
-        st.warning("Visualizations unavailable - required packages not installed")
-        return
-    
-    with st.expander("📊 Advanced Visualizations", expanded=True):
-        tab1, tab2 = st.tabs(["Weekly Changes Heatmap", "Performance Analysis"])
-        
-        with tab1:
-            st.subheader("Weekly Percentage Changes Heatmap")
-            
-            # Prepare data for heatmap
-            pct_cols = [f"{col}_pct" for col in week_labels[1:]]
-            heatmap_data = price_df.set_index('Ticker')[pct_cols]
-            heatmap_data.columns = [col.replace('_pct', '') for col in heatmap_data.columns]
-            
-            # Drop all-NaN rows for cleaner heatmap
-            heatmap_data = heatmap_data.dropna(how='all')
-            if heatmap_data.empty:
-                st.warning("No valid percentage change data available for heatmap.")
-            else:
-                fig, ax = plt.subplots(figsize=(12, max(6, len(heatmap_data) * 0.5)))
-                sns.heatmap(
-                    heatmap_data,
-                    annot=True,
-                    fmt=".1f",
-                    cmap="RdYlGn",
-                    center=0,
-                    linewidths=0.5,
-                    ax=ax
-                )
-                ax.set_title("Weekly Price Change Percentage (%)")
-                st.pyplot(fig, use_container_width=True)
-        
-        with tab2:
-            st.subheader("Performance Analysis")
-            
-            # Calculate overall performance
-            price_df['Total Change %'] = (
-                (price_df[week_labels[-1]] - price_df[week_labels[0]]) / 
-                price_df[week_labels[0]] * 100
-            )
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**Top Performers (Overall Period)**")
-                top_performers = price_df.nlargest(
-                    5, 'Total Change %')[['Ticker', 'Total Change %']]
-                st.dataframe(
-                    top_performers.style.format({'Total Change %': "{:.1f}%"}),
-                    hide_index=True
-                )
-            
-            with col2:
-                st.markdown("**Worst Performers (Overall Period)**")
-                worst_performers = price_df.nsmallest(
-                    5, 'Total Change %')[['Ticker', 'Total Change %']]
-                st.dataframe(
-                    worst_performers.style.format({'Total Change %': "{:.1f}%"}),
-                    hide_index=True
-                )
-
-def main():
-    st.title("📈 Weekly Stock Price Tracker")
-    st.markdown("""
-        <div class="info-text">
-        Upload an Excel file with stock symbols to track their weekly price changes.<br>
-        File should contain columns: <strong>Symbol</strong> and <strong>Exchange</strong> (e.g., AAPL for NYSE or 005930.KS for Korean exchange)
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # File uploader with example
-    with st.expander("📁 Example File Format", expanded=False):
-        example_df = pd.DataFrame({
-            'Symbol': ['AAPL', 'MSFT', '005930'],
-            'Exchange': [None, None, 'KS']
-        })
-        st.dataframe(example_df, hide_index=True)
-        
-        # --- FIXED: write example file to buffer for download ---
-        buffer = BytesIO()
-        example_df.to_excel(buffer, index=False, engine='openpyxl')
-        buffer.seek(0)
-        st.download_button(
-            label="Download Example File",
-            data=buffer.getvalue(),
-            file_name="example_tickers.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    
-    uploaded_file = st.file_uploader(
-        "Upload Excel File", 
-        type=['xlsx'],
-        help="Excel file should have 'Symbol' and 'Exchange' columns"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Read the Excel file
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
-            
-            # Validate the file structure
-            if not all(col in df.columns for col in ['Symbol', 'Exchange']):
-                st.error("❌ The Excel file must contain 'Symbol' and 'Exchange' columns")
-                return
-            
-            # Clean data
-            df['Exchange'] = df['Exchange'].fillna('')
-            
-            # Get week boundaries (last 6 weeks)
-            week_boundaries = get_week_boundaries(weeks_back=6)
-            week_labels = [f"{start.strftime('%b %d')} - {end.strftime('%b %d')}" 
-                          for start, end in week_boundaries]
-            
-            # Fetch data for all tickers
-            st.subheader("⏳ Fetching Market Data...")
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            ticker_data = []
-            
-            us_exchanges = ['', None, 'NYSE', 'NASDAQ', 'AMEX']
-
-            for idx, row in df.iterrows():
-                exchange = str(row['Exchange']).upper().strip() if pd.notna(row['Exchange']) else ''
-                symbol = str(row['Symbol']).strip()
-                if exchange in us_exchanges:
-                    ticker = symbol
-                else:
-                    ticker = f"{symbol}.{exchange}"
-                status_text.text(f"Fetching data for {ticker} ({idx+1}/{len(df)})...")
-                prices = get_weekly_prices(ticker, week_boundaries)
-                ticker_data.append([ticker] + prices)
-                progress_bar.progress((idx + 1) / len(df))
-            
-            # Create DataFrame with weekly prices
-            price_df = pd.DataFrame(ticker_data, columns=['Ticker'] + week_labels)
-            
-            # Calculate weekly changes
-            price_df = calculate_weekly_changes(price_df, week_labels)
-            
-            # Display the main price table
-            st.subheader("📊 Weekly Price Changes")
-            st.dataframe(
-                price_df.style.map(style_dataframe, subset=week_labels[1:]),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Download button
-            st.download_button(
-                label="💾 Download Data as CSV",
-                data=price_df.to_csv(index=False),
-                file_name="weekly_stock_prices.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-            
-            # Display visualizations if available
-            display_visualizations(price_df, week_labels)
-        
-        except Exception as e:
-            st.error(f"❌ An error occurred: {str(e)}")
-            st.error("Please check your file format and try again")
-
-# The main() call should be at the very end of the file
-if __name__ == "__main__":
-    main()
+            st.subheader("Weekly Closing Prices")
+            st.dataframe(price_df)
+        else:
+            st.error("No valid data fetched for the provided tickers.")
