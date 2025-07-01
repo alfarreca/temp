@@ -42,6 +42,7 @@ if uploaded_file is not None:
         # Get the actual column name in case of whitespace
         symbol_col = [c for c in df_tickers.columns if c.strip() == 'Symbol'][0]
         tickers = df_tickers[symbol_col].dropna().astype(str).str.upper().unique()
+        st.write(f"`tickers` object type: {type(tickers)}; length: {len(tickers)}; preview: {tickers[:10]}")
 
         if len(tickers) > 0:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
