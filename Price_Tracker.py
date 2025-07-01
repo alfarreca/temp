@@ -44,8 +44,16 @@ if uploaded_file is not None:
         # Clean up the temporary file
         os.unlink(tmp_file_path)
         
-        # Assume tickers are in the first column
-        tickers = df_tickers.iloc[:, 0].dropna().astype(str).unique()
+        # Check if required columns exist
+        if 'Simbol' not in df_tickers.columns:
+            st.error("The Excel file must contain a 'Simbol' column")
+            st.stop()
+            
+        # Get exchange column if available
+        exchange_col = df_tickers['Exchange'] if 'Exchange' in df_tickers.columns else None
+        
+        # Get tickers
+        tickers = df_tickers['Simbol'].dropna().astype(str).unique()
         
         if len(tickers) > 0:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
@@ -64,7 +72,9 @@ if uploaded_file is not None:
                         # Get price changes for all tickers
                         changes = []
                         for ticker in tickers:
-                            change = get_price_change(ticker, start_date, end_date)
+                            # Add exchange if available and needed (e.g., for international tickers)
+                            full_ticker = f"{ticker}.{exchange_col[df_tickers['Simbol'] == ticker].iloc[0]}" if exchange_col is not None else ticker
+                            change = get_price_change(full_ticker, start_date, end_date)
                             changes.append(change)
                         
                         results[f'Week {week}'] = changes
@@ -76,12 +86,16 @@ if uploaded_file is not None:
                     # Create display dataframe with just the percentage changes
                     display_df = results[[f'Week {i}' for i in range(1, 7)]].copy()
                     display_df.columns = [f'Week {i}' for i in range(1, 7)]
+                    display_df.index = tickers
                     
-                    # Format percentages
-                    styled_df = display_df.style.format("{:.2f}%", na_rep="N/A")
+                    # Format percentages - fixed approach
+                    def format_percent(x):
+                        return f"{x:.2f}%" if pd.notnull(x) else "N/A"
+                    
+                    formatted_df = display_df.applymap(format_percent)
                     
                     # Show the table
-                    st.dataframe(styled_df)
+                    st.dataframe(formatted_df)
                     
                     # Show date ranges
                     st.caption("Date ranges for each week:")
@@ -103,4 +117,4 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
 else:
-    st.info("Please upload an Excel file with tickers in the first column.")
+    st.info("Please upload an Excel file with at least a 'Simbol' column.")
