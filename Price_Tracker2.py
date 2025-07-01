@@ -14,7 +14,7 @@ def fetch_weekly_closes(symbol, start, end):
         closes = data.values
         closes = closes[~np.isnan(closes)]  # Remove NaN if any
         if closes.ndim != 1:
-            return None  # Not 1D
+            return None
         if len(closes) < 6:
             return None
         return closes[-6:]
@@ -44,13 +44,27 @@ if uploaded_file:
 
         if result:
             price_df = pd.DataFrame(result).T
-            price_df.columns = [
+            week_labels = [
                 (recent_monday - timedelta(weeks=i)).strftime('%Y-%m-%d')
                 for i in reversed(range(6))
             ]
+            price_df.columns = week_labels
             price_df.reset_index(inplace=True)
             price_df.rename(columns={'index': 'Symbol'}, inplace=True)
             st.subheader("Weekly Closing Prices")
             st.dataframe(price_df)
+
+            # Calculate % price change week over week
+            pct_change_df = price_df.set_index("Symbol")[week_labels].pct_change(axis=1) * 100
+            pct_change_df = pct_change_df.iloc[:, 1:]  # remove the first week (no prior week)
+            pct_change_df = pct_change_df.round(2)
+            pct_change_df.reset_index(inplace=True)
+            pct_change_df.columns = ["Symbol"] + [
+                f"% Change {week_labels[i-1]} to {week_labels[i]}"
+                for i in range(1, 6)
+            ]
+            st.subheader("Weekly % Price Change")
+            st.dataframe(pct_change_df)
+
         else:
             st.error("No valid data fetched for the provided tickers.")
