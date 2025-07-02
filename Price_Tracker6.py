@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.title("📈 Weekly Price Tracker: All-Arounder Score, Top Picks & Charts")
+st.title("📈 Weekly Price Tracker: Breakouts, All-Arounders & Top Picks")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
@@ -93,18 +93,17 @@ if uploaded_file:
             pct_change_df["Total Return %"] = total_return
             pct_change_df.reset_index(inplace=True)
 
-            # ----------- FLAG TOP BOTH -----------
+            # ----------- FLAG TOP STRATEGIES -----------
+            # Top 3 Momentum + Last Week % Change = "Breakout" (🟢)
             top_momentum = set(
                 pct_change_df.sort_values("Momentum Score", ascending=False).head(3)["Symbol"]
             )
-            top_voladj = set(
-                pct_change_df.sort_values("Volatility-Adj Score", ascending=False).head(3)["Symbol"]
+            top_lastweek = set(
+                pct_change_df.sort_values("Last Week % Change", ascending=False).head(3)["Symbol"]
             )
-            pct_change_df["Top Both"] = pct_change_df["Symbol"].apply(
-                lambda x: "✅" if x in top_momentum and x in top_voladj else ""
-            )
+            top_breakout = top_momentum & top_lastweek
 
-            # ----------- ALL-AROUNDER SCORE -----------
+            # Top 3 All-Arounder = "All-Arounder" (🟦)
             cols_to_rank = [
                 "Momentum Score",
                 "Volatility-Adj Score",
@@ -115,10 +114,32 @@ if uploaded_file:
             for col in cols_to_rank:
                 pct_change_df[f"{col} Rank"] = pct_change_df[col].rank(ascending=False, method='min')
             pct_change_df["All-Arounder Score"] = pct_change_df[[f"{col} Rank" for col in cols_to_rank]].sum(axis=1).astype(int)
+            top_all_arounder = set(
+                pct_change_df.sort_values("All-Arounder Score", ascending=True).head(3)["Symbol"]
+            )
 
-            # Put the key columns first
+            # Top 3 Momentum + Volatility-Adj = ✅
+            top_voladj = set(
+                pct_change_df.sort_values("Volatility-Adj Score", ascending=False).head(3)["Symbol"]
+            )
+            top_mom_voladj = top_momentum & top_voladj
+
+            # ----------- FLAG COLUMN (all can overlap) -----------
+            def flag_cell(symbol):
+                flags = ""
+                if symbol in top_breakout:
+                    flags += "🟢"  # Green circle = breakout
+                if symbol in top_all_arounder:
+                    flags += "🟦"  # Blue square = all-arounder
+                if symbol in top_mom_voladj:
+                    flags += "✅"  # Green check = top both
+                return flags
+
+            pct_change_df["Flags"] = pct_change_df["Symbol"].apply(flag_cell)
+
+            # ----------- FINAL COLUMNS -----------
             score_cols = [
-                "Top Both",
+                "Flags",
                 "Symbol",
                 "Momentum Score",
                 "Volatility-Adj Score",
@@ -127,19 +148,24 @@ if uploaded_file:
                 "Total Return %",
                 "All-Arounder Score"
             ]
-            st.subheader("Ticker Scores (5 Strategies) – Top Picks ✅ & All-Arounder")
+            st.subheader(
+                "Ticker Scores (5 Strategies)\n🟢 Breakout (Momentum+LastWk) | 🟦 All-Arounder | ✅ Top Momentum+VolAdj"
+            )
             st.dataframe(
                 pct_change_df[score_cols].sort_values(
-                    by=["All-Arounder Score", "Momentum Score"], ascending=[True, False]
+                    by=["Flags", "All-Arounder Score", "Momentum Score"], ascending=[False, True, False]
                 )
             )
 
-            # Show summary of top picks
-            top_both_tickers = pct_change_df[pct_change_df["Top Both"] == "✅"]["Symbol"].tolist()
-            if top_both_tickers:
-                st.success(f"**Top short-term picks (top 3 in both Momentum & Volatility-Adj):** {', '.join(top_both_tickers)}")
-            else:
-                st.info("No ticker ranked in top 3 for both Momentum and Volatility-Adj Score this week.")
+            # ----------- TOP PICK SUMMARIES -----------
+            if len(top_breakout):
+                st.success(f"**🟢 Breakout candidates:** {', '.join(top_breakout)}")
+            if len(top_all_arounder):
+                st.info(f"**🟦 All-arounders:** {', '.join(top_all_arounder)}")
+            if len(top_mom_voladj):
+                st.warning(f"**✅ Momentum & Volatility-Adj top picks:** {', '.join(top_mom_voladj)}")
+            if not (len(top_breakout) or len(top_all_arounder) or len(top_mom_voladj)):
+                st.info("No tickers flagged in special categories this week.")
 
             # ----------- CHARTS WITH TABS -----------
             st.subheader("Charts")
@@ -178,6 +204,5 @@ if uploaded_file:
                     ax2.legend()
                     plt.xticks(rotation=45)
                     st.pyplot(fig2)
-
         else:
             st.error("No valid data fetched for the provided tickers.")
