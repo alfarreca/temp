@@ -26,10 +26,25 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
             if abs(i) <= len(weekly):
                 row = weekly.iloc[i]
                 close_val = row.get("Close", np.nan)
+                # Always fetch as scalar
+                if isinstance(close_val, pd.Series):
+                    close_val = close_val.item() if len(close_val) > 0 else np.nan
+                if not isinstance(close_val, float):
+                    try:
+                        close_val = float(close_val)
+                    except:
+                        close_val = np.nan
                 if not pd.isna(close_val):
                     closes.append(close_val)
                 else:
                     adj_close_val = row.get("Adj Close", np.nan)
+                    if isinstance(adj_close_val, pd.Series):
+                        adj_close_val = adj_close_val.item() if len(adj_close_val) > 0 else np.nan
+                    if not isinstance(adj_close_val, float):
+                        try:
+                            adj_close_val = float(adj_close_val)
+                        except:
+                            adj_close_val = np.nan
                     closes.append(adj_close_val if not pd.isna(adj_close_val) else np.nan)
     closes = [x for x in closes if not pd.isna(x)]
 
@@ -42,13 +57,11 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
         progress=False,
     )
     if not current_week.empty:
-        if 'Close' in current_week:
-            last_close_series = current_week['Close'].dropna()
-        elif 'Adj Close' in current_week:
-            last_close_series = current_week['Adj Close'].dropna()
+        last_close_series = current_week.get('Close', current_week.get('Adj Close', pd.Series(dtype=float))).dropna()
+        if isinstance(last_close_series, pd.Series):
+            last_close_val = last_close_series.iloc[-1] if not last_close_series.empty else np.nan
         else:
-            last_close_series = pd.Series(dtype=float)
-        last_close_val = last_close_series[-1] if not last_close_series.empty else np.nan
+            last_close_val = last_close_series
     else:
         last_close_val = np.nan
 
