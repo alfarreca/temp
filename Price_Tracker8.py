@@ -22,17 +22,15 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
     )
     closes = []
     if not weekly.empty:
-        # yfinance returns weekly rows, each with 'Close' and maybe 'Adj Close'
         for i in range(-5, 0):
             if abs(i) <= len(weekly):
                 row = weekly.iloc[i]
-                if 'Close' in row and not pd.isna(row['Close']):
-                    closes.append(row['Close'])
-                elif 'Adj Close' in row and not pd.isna(row['Adj Close']):
-                    closes.append(row['Adj Close'])
+                close_val = row.get("Close", np.nan)
+                if not pd.isna(close_val):
+                    closes.append(close_val)
                 else:
-                    closes.append(np.nan)
-    # Drop NaN to avoid bad tickers
+                    adj_close_val = row.get("Adj Close", np.nan)
+                    closes.append(adj_close_val if not pd.isna(adj_close_val) else np.nan)
     closes = [x for x in closes if not pd.isna(x)]
 
     # For current week: last available daily close after last Friday
