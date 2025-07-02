@@ -85,7 +85,7 @@ if uploaded_file:
     if not all(col in tickers_df.columns for col in ["Symbol", "Exchange"]):
         st.error("Excel file must contain 'Symbol' and 'Exchange' columns.")
     else:
-        symbols = tickers_df["Symbol"].tolist()
+        symbols = tickers_df["Symbol"].dropna().astype(str).unique().tolist() # Clean and unique symbols
 
         today = datetime.today()
         tz = pytz.timezone('US/Eastern')
@@ -96,15 +96,25 @@ if uploaded_file:
 
         # Fetch data for a sample symbol to determine the actual last trading day
         # This helps align current week's data correctly even if today is not a trading day
+        last_close_dt = None
         if symbols:
-            sample_symbol = symbols[0]
-            daily_data = yf.download(sample_symbol, period="7d", interval="1d", progress=False, show_errors=False)
-            if daily_data.empty:
-                st.error(f"Could not fetch data for {sample_symbol} to align trading days. Please check your internet connection or the symbol's validity.")
+            # Iterate through symbols to find the first one that successfully fetches data
+            for attempt_symbol in symbols:
+                try:
+                    daily_data = yf.download(attempt_symbol, period="7d", interval="1d", progress=False, show_errors=False)
+                    if not daily_data.empty:
+                        last_close_dt = daily_data.index[-1].to_pydatetime().date()
+                        break # Found a valid sample, exit loop
+                except Exception as e:
+                    # Catch any exception during yf.download for the sample symbol
+                    st.warning(f"Could not fetch sample data for {attempt_symbol} to align trading days due to an error: {e}")
+                    continue # Try the next symbol
+
+            if last_close_dt is None:
+                st.error("Could not fetch data for any sample symbol to determine the last trading day. Please check your ticker list and internet connection.")
                 st.stop()
-            last_close_dt = daily_data.index[-1].to_pydatetime().date()
         else:
-            st.warning("No symbols found in the uploaded Excel file.")
+            st.warning("No valid symbols found in the uploaded Excel file after cleaning.")
             st.stop()
 
 
@@ -220,7 +230,9 @@ if uploaded_file:
                     st.session_state.history_df = pd.DataFrame(columns=["Date"] + final_cols)
 
             # Append only if not already added for today
-            if today_str not in st.session_state.history_df["Date"].values:
+            # Use tuple comparison for rows to avoid issues with floating point precision in full DF comparison
+            current_day_history = st.session_state.history_df[st.session_state.history_df["Date"] == today_str]
+            if not history.apply(tuple, axis=1).isin(current_day_history.apply(tuple, axis=1)).all():
                 st.session_state.history_df = pd.concat([st.session_state.history_df, history], ignore_index=True)
                 st.session_state.history_df.to_csv(history_file, index=False) # Write to CSV
 
