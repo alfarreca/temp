@@ -7,178 +7,115 @@ import matplotlib.pyplot as plt
 import pytz
 import os
 
-st.title("📈 Weekly Price Tracker: Fridays, Current Week, Flags & History")
+st.title("📈 Weekly Price Tracker: Calendar Weeks, Dynamic 'Current Week', Flags & History")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
-def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
-    """
-    Fetches the closing prices for the last 5 Fridays and the last available close
-    for the current week for a given stock symbol.
-    """
-    
-    # Ensure we request enough history for weekly data (5 Fridays + a buffer)
-    # yfinance weekly data is indexed by the end of the week (typically Friday)
-    # So we need to ensure our start date is well before the first Friday_date we care about
-    weekly_start_date = friday_dates[0] - timedelta(weeks=8) 
-    
+def fetch_weekly_and_current_closes(symbol, week_ends, last_close_dt, recent_monday):
+    # Get weekly closes for first 5 weeks (Monday to Monday)
     weekly = yf.download(
         symbol,
-        start=weekly_start_date, 
-        end=last_close_dt + timedelta(days=1), # Ensure data until current period is fetched
+        start=week_ends[0] - timedelta(days=7),
+        end=recent_monday,
         interval="1wk",
-        progress=False
+        progress=False,
     )
-    
     closes = []
     if not weekly.empty:
-        # Convert friday_dates to pandas Timestamps for direct comparison with weekly.index
-        target_fridays_ts = pd.to_datetime([str(d) for d in friday_dates])
-        
-        for target_date in target_fridays_ts:
-            # Find the weekly bar whose index (end of week) is closest to and less than or equal to the target_date
-            # We take the last entry from the filtered weekly data to get the latest close on or before target_date
-            valid_weekly_rows = weekly[weekly.index <= target_date].tail(1)
-            
-            if not valid_weekly_rows.empty:
-                # Reliably get a scalar value from the DataFrame row
-                close_val = valid_weekly_rows['Close'].iloc[0] if 'Close' in valid_weekly_rows.columns else np.nan
-                if pd.isna(close_val) and 'Adj Close' in valid_weekly_rows.columns:
-                    close_val = valid_weekly_rows['Adj Close'].iloc[0]
-                
-                # Ensure close_val is a scalar float or np.nan
-                if pd.isna(close_val) or isinstance(close_val, (int, float, np.floating)):
+        for i in range(-5, 0):
+            if abs(i) <= len(weekly):
+                row = weekly.iloc[i]
+                close_val = row.get("Close", np.nan)
+                if isinstance(close_val, pd.Series):
+                    close_val = close_val.item() if len(close_val) > 0 else np.nan
+                if not isinstance(close_val, float):
+                    try:
+                        close_val = float(close_val)
+                    except:
+                        close_val = np.nan
+                if not pd.isna(close_val):
                     closes.append(close_val)
                 else:
-                    # If it's still not scalar (e.g., a Series), force it to np.nan
-                    closes.append(np.nan)
-            else:
-                closes.append(np.nan) # No data found for this specific Friday
-    
-    # Filter out NaNs (e.g., if a Friday had no data)
+                    adj_close_val = row.get("Adj Close", np.nan)
+                    if isinstance(adj_close_val, pd.Series):
+                        adj_close_val = adj_close_val.item() if len(adj_close_val) > 0 else np.nan
+                    if not isinstance(adj_close_val, float):
+                        try:
+                            adj_close_val = float(adj_close_val)
+                        except:
+                            adj_close_val = np.nan
+                    closes.append(adj_close_val if not pd.isna(adj_close_val) else np.nan)
     closes = [x for x in closes if not pd.isna(x)]
-    
-    # We need exactly 5 weekly closes. If not, consider it a failure.
-    if len(closes) < 5:
-        return [], np.nan, "not_enough_weekly" # Indicate failure to get enough weekly data
-        
-    # Fetch current week daily data to get the very last available close
-    current_week_start = friday_dates[-1] + timedelta(days=1) # Start day after last Friday
+
+    # Fetch daily closes for the current week (recent_monday up to last_close_dt)
     current_week = yf.download(
         symbol,
-        start=current_week_start,
-        end=last_close_dt + timedelta(days=1), # Fetch up to and including the determined last trading day
+        start=recent_monday,
+        end=last_close_dt + timedelta(days=1),
         interval="1d",
-        progress=False
+        progress=False,
     )
-    
-    last_close_val = np.nan
     if not current_week.empty:
-        # Prioritize 'Close' column, fall back to 'Adj Close'
-        if 'Close' in current_week.columns:
-            last_close_series = current_week['Close']
-        elif 'Adj Close' in current_week.columns:
-            last_close_series = current_week['Adj Close']
+        last_close_series = current_week.get('Close', current_week.get('Adj Close', pd.Series(dtype=float))).dropna()
+        if isinstance(last_close_series, pd.Series):
+            last_close_val = last_close_series.iloc[-1] if not last_close_series.empty else np.nan
         else:
-            last_close_series = pd.Series(dtype=float) # Empty series if neither column exists
+            last_close_val = last_close_series
+    else:
+        last_close_val = np.nan
 
-        # Get the last non-NaN value from the series
-        if not last_close_series.empty:
-            last_close_val = last_close_series.dropna().iloc[-1] if not last_close_series.dropna().empty else np.nan
-    
-    if pd.isna(last_close_val):
-        return closes, np.nan, "no_current_week_data" # Indicate failure to get current week's data
-
-    return closes, last_close_val, "success"
+    return closes, last_close_val
 
 if uploaded_file:
-    try:
-        tickers_df = pd.read_excel(uploaded_file)
-    except Exception as e:
-        st.error(f"Error reading Excel file: {e}. Please ensure it's a valid .xlsx file.")
-        st.stop()
+    tickers_df = pd.read_excel(uploaded_file)
 
     if not all(col in tickers_df.columns for col in ["Symbol", "Exchange"]):
         st.error("Excel file must contain 'Symbol' and 'Exchange' columns.")
     else:
-        symbols = tickers_df["Symbol"].dropna().astype(str).unique().tolist() # Clean and unique symbols
+        symbols = tickers_df["Symbol"].tolist()
 
-        today = datetime.today()
+        # --- Find the most recent daily close (for any ticker) ---
+        sample_symbol = symbols[0]
+        daily_data = yf.download(sample_symbol, period="7d", interval="1d", progress=False)
+        if daily_data.empty:
+            st.error(f"Could not fetch data for {sample_symbol} to align trading days.")
+            st.stop()
+        last_close_dt = daily_data.index[-1].to_pydatetime().date()
+
+        # --- Find the most recent Monday (for proper calendar weeks) ---
         tz = pytz.timezone('US/Eastern')
         now_est = datetime.now(tz)
-        days_since_friday = (now_est.weekday() - 4) % 7  # Friday = 4 (Monday=0, Sunday=6)
-        last_friday = (now_est - timedelta(days=days_since_friday)).date()
-        
-        # Ensure we get 5 unique Friday dates, going back in time
-        friday_dates = sorted([last_friday - timedelta(weeks=i) for i in range(5)])
+        recent_monday = now_est - timedelta(days=now_est.weekday())
+        recent_monday = recent_monday.date()
 
-        # Fetch data for a sample symbol to determine the actual last trading day
-        # This helps align current week's data correctly even if today is not a trading day
-        last_close_dt = None
-        if symbols:
-            # Iterate through symbols to find the first one that successfully fetches data
-            for attempt_symbol in symbols:
-                try:
-                    daily_data = yf.download(attempt_symbol, period="7d", interval="1d", progress=False)
-                    if not daily_data.empty and ('Close' in daily_data.columns or 'Adj Close' in daily_data.columns):
-                        # Get the last valid trading day from the sample data
-                        # Check both 'Close' and 'Adj Close' for non-NA values
-                        valid_dates_close = daily_data.index[daily_data['Close'].notna()]
-                        valid_dates_adj_close = daily_data.index[daily_data['Adj Close'].notna()]
-                        
-                        if not valid_dates_close.empty:
-                            last_close_dt = valid_dates_close[-1].to_pydatetime().date()
-                            break # Found a valid sample, exit loop
-                        elif not valid_dates_adj_close.empty:
-                            last_close_dt = valid_dates_adj_close[-1].to_pydatetime().date()
-                            break # Found a valid sample, exit loop
-                except Exception as e:
-                    # Catch any exception during yf.download for the sample symbol
-                    # This warning is what you saw in the image.
-                    st.warning(f"Could not fetch sample data for {attempt_symbol} to align trading days due to an error: {e}")
-                    continue # Try the next symbol
+        # --- Week boundaries: first 5 are previous Mondays, last is 'recent_monday to last_close_dt' ---
+        week_ends = [recent_monday - timedelta(weeks=i) for i in reversed(range(5))]
+        # These are calendar-aligned Mondays (ex: [2024-06-03, ..., 2024-07-01] if today is in the week of July 1)
 
-            if last_close_dt is None:
-                st.error("Could not fetch data for any sample symbol to determine the last trading day. Please check your ticker list and internet connection.")
-                st.stop()
-        else:
-            st.warning("No valid symbols found in the uploaded Excel file after cleaning.")
-            st.stop()
+        week_labels = []
+        for i in range(5):
+            week_labels.append(week_ends[i].strftime('%Y-%m-%d'))
+        week_labels.append(f"{recent_monday.strftime('%Y-%m-%d')} to {last_close_dt.strftime('%Y-%m-%d')}")
 
-
-        week_labels = [d.strftime('%Y-%m-%d') for d in friday_dates]
-        week_labels.append(f"Current Week ({friday_dates[-1].strftime('%Y-%m-%d')}–{last_close_dt.strftime('%Y-%m-%d')})")
-
+        # --- Fetch data and build table ---
         result = {}
         for symbol in symbols:
-            closes, last_close, status = fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt)
-            
-            if status == "not_enough_weekly":
-                st.warning(f"Ticker {symbol}: Could not fetch 5 weeks of historical Friday closing data. Skipped.")
-                continue
-            elif status == "no_current_week_data":
-                st.warning(f"Ticker {symbol}: Could not fetch current week's closing price. Skipped.")
-                continue
-            elif status == "success":
-                try:
-                    last_close_scalar = float(last_close)
-                except Exception:
-                    last_close_scalar = np.nan
-                    st.warning(f"Ticker {symbol}: Current week's closing price could not be converted to a number. Skipped.")
-                    continue
-
-                if len(closes) == 5 and not pd.isna(last_close_scalar):
-                    result[symbol] = closes + [last_close_scalar]
-                else:
-                    # This case should ideally be caught by specific status checks, but acts as a fallback
-                    st.warning(f"Ticker {symbol}: Incomplete data after fetch. Check weekly/current closes. Skipped.")
+            closes, last_close = fetch_weekly_and_current_closes(symbol, week_ends, last_close_dt, recent_monday)
+            try:
+                last_close_scalar = float(last_close)
+            except Exception:
+                last_close_scalar = np.nan
+            if len(closes) == 5 and not pd.isna(last_close_scalar):
+                result[symbol] = closes + [last_close_scalar]
+            else:
+                st.warning(f"Ticker {symbol}: Could not fetch enough data for all 6 columns. Skipped.")
 
         if result:
             price_df = pd.DataFrame(result).T
             price_df.columns = week_labels
             price_df.reset_index(inplace=True)
             price_df.rename(columns={'index': 'Symbol'}, inplace=True)
-            st.subheader("Weekly (Friday) + Current Week Closing Prices")
+            st.subheader("Weekly (Mon–Mon) + Current Week Closing Prices")
             st.dataframe(price_df)
 
             pct_change_df = price_df.set_index("Symbol")[week_labels].pct_change(axis=1) * 100
@@ -205,42 +142,28 @@ if uploaded_file:
             pct_change_df["Total Return %"] = total_return
             pct_change_df.reset_index(inplace=True)
 
-            # Flag Calculation
             top_momentum = set(pct_change_df.nlargest(3, "Momentum Score")["Symbol"])
             top_lastweek = set(pct_change_df.nlargest(3, "Last Week % Change")["Symbol"])
-            top_breakout = top_momentum & top_lastweek # Green Circle
+            top_breakout = top_momentum & top_lastweek
 
             cols_to_rank = ["Momentum Score", "Volatility-Adj Score", "Trend Consistency", "Last Week % Change", "Total Return %"]
             for col in cols_to_rank:
-                # Rank handling for NaNs: 'top' puts NaNs at the end, 'average' rank method
-                pct_change_df[f"{col} Rank"] = pct_change_df[col].rank(ascending=False, na_option='bottom', method='average')
-            
+                pct_change_df[f"{col} Rank"] = pct_change_df[col].rank(ascending=False)
             pct_change_df["All-Arounder Score"] = pct_change_df[[f"{col} Rank" for col in cols_to_rank]].sum(axis=1)
-            top_all_arounder = set(pct_change_df.nsmallest(3, "All-Arounder Score")["Symbol"]) # Blue Square
+            top_all_arounder = set(pct_change_df.nsmallest(3, "All-Arounder Score")["Symbol"])
 
             top_voladj = set(pct_change_df.nlargest(3, "Volatility-Adj Score")["Symbol"])
-            top_mom_voladj = top_momentum & top_voladj # Green Checkmark
+            top_mom_voladj = top_momentum & top_voladj
 
             def flag_cell(symbol):
-                flags = []
-                if symbol in top_breakout:
-                    flags.append("🟢")
-                if symbol in top_all_arounder:
-                    flags.append("🟦")
-                if symbol in top_mom_voladj:
-                    flags.append("✅")
-                return "".join(flags)
-
+                return ("🟢" if symbol in top_breakout else "") + \
+                       ("🟦" if symbol in top_all_arounder else "") + \
+                       ("✅" if symbol in top_mom_voladj else "")
             pct_change_df["Flags"] = pct_change_df["Symbol"].apply(flag_cell)
 
             final_cols = ["Flags", "Symbol", "Momentum Score", "Volatility-Adj Score",
                           "Trend Consistency", "Last Week % Change", "Total Return %", "All-Arounder Score"]
 
-            st.subheader("Analysis & Flags")
-            st.write("🟢 Top Breakout (High Momentum & High Last Week % Change)")
-            st.write("🟦 Top All-Arounder (Lowest combined rank across all metrics)")
-            st.write("✅ Top Momentum & Volatility-Adjusted Score")
-            
             st.dataframe(pct_change_df[final_cols].sort_values("All-Arounder Score"))
 
             # CSV History
@@ -248,29 +171,13 @@ if uploaded_file:
             today_str = date.today().isoformat()
             history = pct_change_df[final_cols].copy()
             history.insert(0, "Date", today_str)
-            
-            # Use st.session_state for temporary storage to prevent excessive file writes
-            # and enable better persistence simulation in a single session.
-            if 'history_df' not in st.session_state:
-                if os.path.exists(history_file):
-                    st.session_state.history_df = pd.read_csv(history_file)
-                else:
-                    st.session_state.history_df = pd.DataFrame(columns=["Date"] + final_cols)
-
-            # Append only if not already added for today
-            # Use tuple comparison for rows to avoid issues with floating point precision in full DF comparison
-            current_day_history = st.session_state.history_df[st.session_state.history_df["Date"] == today_str]
-            # Convert to tuples for comparison, dropping NaNs for consistency
-            history_tuples = history.dropna().apply(tuple, axis=1)
-            current_day_history_tuples = current_day_history.dropna().apply(tuple, axis=1)
-
-            if not history_tuples.isin(current_day_history_tuples).all() or current_day_history_tuples.empty:
-                st.session_state.history_df = pd.concat([st.session_state.history_df, history], ignore_index=True)
-                st.session_state.history_df.to_csv(history_file, index=False) # Write to CSV
+            if os.path.exists(history_file):
+                history.to_csv(history_file, mode='a', header=False, index=False)
+            else:
+                history.to_csv(history_file, mode='w', index=False)
 
             if st.checkbox("Show recent history"):
-                st.subheader("Historical Flags & Scores")
-                st.write(st.session_state.history_df.tail(30))
+                st.write(pd.read_csv(history_file).tail(30))
 
             # --- CHARTS WITH TABS ---
             st.subheader("Charts")
@@ -282,7 +189,7 @@ if uploaded_file:
             with tab1:
                 st.markdown("**Raw weekly closing prices for each ticker.**")
                 if tickers_to_plot:
-                    fig, ax = plt.subplots(figsize=(10, 6)) # Added figsize for better readability
+                    fig, ax = plt.subplots()
                     for sym in tickers_to_plot:
                         row = price_df[price_df["Symbol"] == sym]
                         if not row.empty:
@@ -291,32 +198,23 @@ if uploaded_file:
                     ax.set_ylabel("Closing Price")
                     ax.set_title("Weekly Closing Price Trend")
                     ax.legend()
-                    plt.xticks(rotation=45, ha='right') # Improved rotation and alignment
-                    plt.tight_layout() # Adjust layout to prevent labels from overlapping
+                    plt.xticks(rotation=45)
                     st.pyplot(fig)
-                else:
-                    st.info("Select at least one ticker to view the Price Trend chart.")
             with tab2:
                 st.markdown("**Performance normalized to 100 at the start: compare pure relative gains/losses.**")
                 if tickers_to_plot:
-                    fig2, ax2 = plt.subplots(figsize=(10, 6)) # Added figsize
+                    fig2, ax2 = plt.subplots()
                     for sym in tickers_to_plot:
                         row = price_df[price_df["Symbol"] == sym]
                         if not row.empty:
                             prices = row.iloc[0, 1:].values.astype(float)
-                            if len(prices) > 0 and prices[0] != 0: # Avoid division by zero
-                                norm_prices = prices / prices[0] * 100
-                                ax2.plot(week_labels, norm_prices, marker='o', label=sym)
-                            else:
-                                st.warning(f"Cannot normalize {sym}: Insufficient price data or starting price is zero.")
+                            norm_prices = prices / prices[0] * 100
+                            ax2.plot(week_labels, norm_prices, marker='o', label=sym)
                     ax2.set_xlabel("Week")
                     ax2.set_ylabel("Normalized Price (Start=100)")
                     ax2.set_title("Normalized Weekly Performance")
                     ax2.legend()
-                    plt.xticks(rotation=45, ha='right') # Improved rotation and alignment
-                    plt.tight_layout() # Adjust layout
+                    plt.xticks(rotation=45)
                     st.pyplot(fig2)
-                else:
-                    st.info("Select at least one ticker to view the Normalized Performance chart.")
         else:
-            st.error("No valid data could be fetched for any of the symbols. Please check your ticker list and ensure they are valid and actively traded on Yahoo Finance.")
+            st.error("No valid data fetched.")
