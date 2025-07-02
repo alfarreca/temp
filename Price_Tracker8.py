@@ -92,7 +92,11 @@ if uploaded_file:
         result = {}
         for symbol in symbols:
             closes, last_close = fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt)
-            last_close_scalar = np.array(last_close).item()
+            # Safe scalar conversion (no .item())
+            try:
+                last_close_scalar = float(last_close)
+            except Exception:
+                last_close_scalar = np.nan
             if len(closes) == 5 and not pd.isna(last_close_scalar):
                 result[symbol] = closes + [last_close_scalar]
             else:
@@ -166,5 +170,43 @@ if uploaded_file:
 
             if st.checkbox("Show recent history"):
                 st.write(pd.read_csv(history_file).tail(30))
+
+            # --- CHARTS WITH TABS ---
+            st.subheader("Charts")
+            ticker_options = price_df["Symbol"].tolist()
+            tickers_to_plot = st.multiselect(
+                "Select tickers to plot", ticker_options, default=ticker_options[:min(3, len(ticker_options))]
+            )
+            tab1, tab2 = st.tabs(["Price Trend", "Normalized Performance"])
+            with tab1:
+                st.markdown("**Raw weekly closing prices for each ticker.**")
+                if tickers_to_plot:
+                    fig, ax = plt.subplots()
+                    for sym in tickers_to_plot:
+                        row = price_df[price_df["Symbol"] == sym]
+                        if not row.empty:
+                            ax.plot(week_labels, row.iloc[0, 1:], marker='o', label=sym)
+                    ax.set_xlabel("Week")
+                    ax.set_ylabel("Closing Price")
+                    ax.set_title("Weekly Closing Price Trend")
+                    ax.legend()
+                    plt.xticks(rotation=45)
+                    st.pyplot(fig)
+            with tab2:
+                st.markdown("**Performance normalized to 100 at the start: compare pure relative gains/losses.**")
+                if tickers_to_plot:
+                    fig2, ax2 = plt.subplots()
+                    for sym in tickers_to_plot:
+                        row = price_df[price_df["Symbol"] == sym]
+                        if not row.empty:
+                            prices = row.iloc[0, 1:].values.astype(float)
+                            norm_prices = prices / prices[0] * 100
+                            ax2.plot(week_labels, norm_prices, marker='o', label=sym)
+                    ax2.set_xlabel("Week")
+                    ax2.set_ylabel("Normalized Price (Start=100)")
+                    ax2.set_title("Normalized Weekly Performance")
+                    ax2.legend()
+                    plt.xticks(rotation=45)
+                    st.pyplot(fig2)
         else:
             st.error("No valid data fetched.")
