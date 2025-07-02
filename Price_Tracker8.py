@@ -12,7 +12,7 @@ st.title("📈 Weekly Price Tracker: Fridays, Current Week, Flags & History")
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
 def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
-    # Get weekly closes for the last 5 Fridays (from yfinance '1wk' interval)
+    # Weekly closes for last 5 Fridays
     weekly = yf.download(
         symbol,
         start=friday_dates[0] - timedelta(days=7),
@@ -20,9 +20,22 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
         interval="1wk",
         progress=False,
     )
-    closes = list(weekly['Close'][-5:]) if not weekly.empty else []
+    closes = []
+    if not weekly.empty:
+        # yfinance returns weekly rows, each with 'Close' and maybe 'Adj Close'
+        for i in range(-5, 0):
+            if abs(i) <= len(weekly):
+                row = weekly.iloc[i]
+                if 'Close' in row and not pd.isna(row['Close']):
+                    closes.append(row['Close'])
+                elif 'Adj Close' in row and not pd.isna(row['Adj Close']):
+                    closes.append(row['Adj Close'])
+                else:
+                    closes.append(np.nan)
+    # Drop NaN to avoid bad tickers
+    closes = [x for x in closes if not pd.isna(x)]
 
-    # For the "current week", get last available daily close after last Friday
+    # For current week: last available daily close after last Friday
     current_week = yf.download(
         symbol,
         start=friday_dates[-1] + timedelta(days=1),
@@ -30,9 +43,18 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
         interval="1d",
         progress=False,
     )
-    last_close = current_week['Close'][-1] if not current_week.empty else np.nan
+    if not current_week.empty:
+        if 'Close' in current_week:
+            last_close_series = current_week['Close'].dropna()
+        elif 'Adj Close' in current_week:
+            last_close_series = current_week['Adj Close'].dropna()
+        else:
+            last_close_series = pd.Series(dtype=float)
+        last_close_val = last_close_series[-1] if not last_close_series.empty else np.nan
+    else:
+        last_close_val = np.nan
 
-    return closes, last_close
+    return closes, last_close_val
 
 if uploaded_file:
     tickers_df = pd.read_excel(uploaded_file)
