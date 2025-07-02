@@ -20,13 +20,13 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
     # Ensure we request enough history for weekly data (5 Fridays + a buffer)
     weekly_start_date = friday_dates[0] - timedelta(weeks=8) 
     
+    # Removed show_errors=False
     weekly = yf.download(
         symbol,
         start=weekly_start_date, 
         end=last_close_dt + timedelta(days=1),
         interval="1wk",
-        progress=False,
-        show_errors=False # Suppress yfinance internal errors in console
+        progress=False
     )
     
     closes = []
@@ -53,13 +53,13 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
         
     # Fetch current week daily data
     current_week_start = friday_dates[-1] + timedelta(days=1)
+    # Removed show_errors=False
     current_week = yf.download(
         symbol,
         start=current_week_start,
         end=last_close_dt + timedelta(days=1),
         interval="1d",
-        progress=False,
-        show_errors=False # Suppress yfinance internal errors in console
+        progress=False
     )
     
     last_close_val = np.nan
@@ -101,7 +101,8 @@ if uploaded_file:
             # Iterate through symbols to find the first one that successfully fetches data
             for attempt_symbol in symbols:
                 try:
-                    daily_data = yf.download(attempt_symbol, period="7d", interval="1d", progress=False, show_errors=False)
+                    # Removed show_errors=False
+                    daily_data = yf.download(attempt_symbol, period="7d", interval="1d", progress=False)
                     if not daily_data.empty:
                         last_close_dt = daily_data.index[-1].to_pydatetime().date()
                         break # Found a valid sample, exit loop
