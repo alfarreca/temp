@@ -42,9 +42,9 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
             
             if not valid_weekly_rows.empty:
                 # Reliably get a scalar value from the DataFrame row
-                close_val = valid_weekly_rows.iloc[0].get('Close', np.nan)
+                close_val = valid_weekly_rows['Close'].iloc[0] if 'Close' in valid_weekly_rows.columns else np.nan
                 if pd.isna(close_val) and 'Adj Close' in valid_weekly_rows.columns:
-                    close_val = valid_weekly_rows.iloc[0].get('Adj Close', np.nan)
+                    close_val = valid_weekly_rows['Adj Close'].iloc[0]
                 
                 # Ensure close_val is a scalar float or np.nan
                 if pd.isna(close_val) or isinstance(close_val, (int, float, np.floating)):
