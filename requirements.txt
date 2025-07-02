@@ -4,3 +4,4 @@ yfinance
 openpyxl
 matplotlib
 seaborn
+pytz
