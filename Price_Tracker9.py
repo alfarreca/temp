@@ -18,57 +18,73 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
     """
     
     # Ensure we request enough history for weekly data (5 Fridays + a buffer)
+    # yfinance weekly data is indexed by the end of the week (typically Friday)
+    # So we need to ensure our start date is well before the first Friday_date we care about
     weekly_start_date = friday_dates[0] - timedelta(weeks=8) 
     
-    # Removed show_errors=False
     weekly = yf.download(
         symbol,
         start=weekly_start_date, 
-        end=last_close_dt + timedelta(days=1),
+        end=last_close_dt + timedelta(days=1), # Ensure data until current period is fetched
         interval="1wk",
         progress=False
     )
     
     closes = []
     if not weekly.empty:
-        # Convert friday_dates to pandas Timestamps for direct comparison
+        # Convert friday_dates to pandas Timestamps for direct comparison with weekly.index
         target_fridays_ts = pd.to_datetime([str(d) for d in friday_dates])
         
         for target_date in target_fridays_ts:
-            # Find the weekly bar whose end date (index) is closest to and before or on the target_date
+            # Find the weekly bar whose index (end of week) is closest to and less than or equal to the target_date
+            # We take the last entry from the filtered weekly data to get the latest close on or before target_date
             valid_weekly_rows = weekly[weekly.index <= target_date].tail(1)
             
             if not valid_weekly_rows.empty:
-                close_val = valid_weekly_rows.iloc[0].get("Close", np.nan)
-                if pd.isna(close_val):
-                    close_val = valid_weekly_rows.iloc[0].get("Adj Close", np.nan)
-                closes.append(close_val)
+                # Reliably get a scalar value from the DataFrame row
+                close_val = valid_weekly_rows.iloc[0].get('Close', np.nan)
+                if pd.isna(close_val) and 'Adj Close' in valid_weekly_rows.columns:
+                    close_val = valid_weekly_rows.iloc[0].get('Adj Close', np.nan)
+                
+                # Ensure close_val is a scalar float or np.nan
+                if pd.isna(close_val) or isinstance(close_val, (int, float, np.floating)):
+                    closes.append(close_val)
+                else:
+                    # If it's still not scalar (e.g., a Series), force it to np.nan
+                    closes.append(np.nan)
             else:
-                closes.append(np.nan) # No data for this specific Friday
+                closes.append(np.nan) # No data found for this specific Friday
     
-    # Filter out NaNs and check if we have enough weekly closes
+    # Filter out NaNs (e.g., if a Friday had no data)
     closes = [x for x in closes if not pd.isna(x)]
+    
+    # We need exactly 5 weekly closes. If not, consider it a failure.
     if len(closes) < 5:
         return [], np.nan, "not_enough_weekly" # Indicate failure to get enough weekly data
         
-    # Fetch current week daily data
-    current_week_start = friday_dates[-1] + timedelta(days=1)
-    # Removed show_errors=False
+    # Fetch current week daily data to get the very last available close
+    current_week_start = friday_dates[-1] + timedelta(days=1) # Start day after last Friday
     current_week = yf.download(
         symbol,
         start=current_week_start,
-        end=last_close_dt + timedelta(days=1),
+        end=last_close_dt + timedelta(days=1), # Fetch up to and including the determined last trading day
         interval="1d",
         progress=False
     )
     
     last_close_val = np.nan
     if not current_week.empty:
-        last_close_series = current_week.get('Close', current_week.get('Adj Close', pd.Series(dtype=float))).dropna()
-        if isinstance(last_close_series, pd.Series):
-            last_close_val = last_close_series.iloc[-1] if not last_close_series.empty else np.nan
+        # Prioritize 'Close' column, fall back to 'Adj Close'
+        if 'Close' in current_week.columns:
+            last_close_series = current_week['Close']
+        elif 'Adj Close' in current_week.columns:
+            last_close_series = current_week['Adj Close']
         else:
-            last_close_val = last_close_series
+            last_close_series = pd.Series(dtype=float) # Empty series if neither column exists
+
+        # Get the last non-NaN value from the series
+        if not last_close_series.empty:
+            last_close_val = last_close_series.dropna().iloc[-1] if not last_close_series.dropna().empty else np.nan
     
     if pd.isna(last_close_val):
         return closes, np.nan, "no_current_week_data" # Indicate failure to get current week's data
@@ -90,9 +106,11 @@ if uploaded_file:
         today = datetime.today()
         tz = pytz.timezone('US/Eastern')
         now_est = datetime.now(tz)
-        days_since_friday = (now_est.weekday() - 4) % 7  # Friday = 4
+        days_since_friday = (now_est.weekday() - 4) % 7  # Friday = 4 (Monday=0, Sunday=6)
         last_friday = (now_est - timedelta(days=days_since_friday)).date()
-        friday_dates = [last_friday - timedelta(weeks=i) for i in reversed(range(5))]
+        
+        # Ensure we get 5 unique Friday dates, going back in time
+        friday_dates = sorted([last_friday - timedelta(weeks=i) for i in range(5)])
 
         # Fetch data for a sample symbol to determine the actual last trading day
         # This helps align current week's data correctly even if today is not a trading day
@@ -101,11 +119,13 @@ if uploaded_file:
             # Iterate through symbols to find the first one that successfully fetches data
             for attempt_symbol in symbols:
                 try:
-                    # Removed show_errors=False
                     daily_data = yf.download(attempt_symbol, period="7d", interval="1d", progress=False)
-                    if not daily_data.empty:
-                        last_close_dt = daily_data.index[-1].to_pydatetime().date()
-                        break # Found a valid sample, exit loop
+                    if not daily_data.empty and ('Close' in daily_data.columns or 'Adj Close' in daily_data.columns):
+                        # Get the last valid trading day from the sample data
+                        valid_dates = daily_data.index[daily_data['Close'].notna() | daily_data['Adj Close'].notna()]
+                        if not valid_dates.empty:
+                            last_close_dt = valid_dates[-1].to_pydatetime().date()
+                            break # Found a valid sample, exit loop
                 except Exception as e:
                     # Catch any exception during yf.download for the sample symbol
                     st.warning(f"Could not fetch sample data for {attempt_symbol} to align trading days due to an error: {e}")
@@ -233,7 +253,11 @@ if uploaded_file:
             # Append only if not already added for today
             # Use tuple comparison for rows to avoid issues with floating point precision in full DF comparison
             current_day_history = st.session_state.history_df[st.session_state.history_df["Date"] == today_str]
-            if not history.apply(tuple, axis=1).isin(current_day_history.apply(tuple, axis=1)).all():
+            # Convert to tuples for comparison, dropping NaNs for consistency
+            history_tuples = history.dropna().apply(tuple, axis=1)
+            current_day_history_tuples = current_day_history.dropna().apply(tuple, axis=1)
+
+            if not history_tuples.isin(current_day_history_tuples).all() or current_day_history_tuples.empty:
                 st.session_state.history_df = pd.concat([st.session_state.history_df, history], ignore_index=True)
                 st.session_state.history_df.to_csv(history_file, index=False) # Write to CSV
 
