@@ -42,8 +42,11 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
             
             if not valid_weekly_rows.empty:
                 # Reliably get a scalar value from the DataFrame row
-                close_val = valid_weekly_rows['Close'].iloc[0] if 'Close' in valid_weekly_rows.columns else np.nan
-                if pd.isna(close_val) and 'Adj Close' in valid_weekly_rows.columns:
+                # Prioritize 'Close' and then 'Adj Close'
+                close_val = np.nan
+                if 'Close' in valid_weekly_rows.columns:
+                    close_val = valid_weekly_rows['Close'].iloc[0]
+                elif 'Adj Close' in valid_weekly_rows.columns:
                     close_val = valid_weekly_rows['Adj Close'].iloc[0]
                 
                 # Ensure close_val is a scalar float or np.nan
@@ -120,14 +123,28 @@ if uploaded_file:
             for attempt_symbol in symbols:
                 try:
                     daily_data = yf.download(attempt_symbol, period="7d", interval="1d", progress=False)
-                    if not daily_data.empty and ('Close' in daily_data.columns or 'Adj Close' in daily_data.columns):
-                        # Get the last valid trading day from the sample data
-                        valid_dates = daily_data.index[daily_data['Close'].notna() | daily_data['Adj Close'].notna()]
-                        if not valid_dates.empty:
-                            last_close_dt = valid_dates[-1].to_pydatetime().date()
+                    if not daily_data.empty:
+                        # Try to find a valid last trading day from 'Close' or 'Adj Close'
+                        # Use .last_valid_index() on the specific series to find the last non-NaN date
+                        last_close_date_from_close = None
+                        if 'Close' in daily_data.columns:
+                            last_close_date_from_close = daily_data['Close'].last_valid_index()
+                        
+                        last_close_date_from_adj_close = None
+                        if 'Adj Close' in daily_data.columns:
+                            last_close_date_from_adj_close = daily_data['Adj Close'].last_valid_index()
+                        
+                        if last_close_date_from_close is not None:
+                            last_close_dt = last_close_date_from_close.to_pydatetime().date()
                             break # Found a valid sample, exit loop
+                        elif last_close_date_from_adj_close is not None:
+                            last_close_dt = last_close_date_from_adj_close.to_pydatetime().date()
+                            break # Found a valid sample, exit loop
+                        else:
+                            st.warning(f"Sample data for {attempt_symbol} has no valid 'Close' or 'Adj Close' prices to align trading days.")
+
                 except Exception as e:
-                    # Catch any exception during yf.download for the sample symbol
+                    # Catch any exception during yf.download or data access for the sample symbol
                     st.warning(f"Could not fetch sample data for {attempt_symbol} to align trading days due to an error: {e}")
                     continue # Try the next symbol
 
