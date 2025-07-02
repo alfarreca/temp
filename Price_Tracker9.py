@@ -11,6 +11,14 @@ st.title("📈 Weekly Price Tracker: Fridays, Current Week, Flags & History")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
+def safe_get_price(row):
+    """Safely extract price from a row, trying Close then Adj Close"""
+    if 'Close' in row and pd.notna(row['Close']).all():
+        return float(row['Close'].iloc[0]) if isinstance(row['Close'], pd.Series) else float(row['Close'])
+    elif 'Adj Close' in row and pd.notna(row['Adj Close']).all():
+        return float(row['Adj Close'].iloc[0]) if isinstance(row['Adj Close'], pd.Series) else float(row['Adj Close'])
+    return np.nan
+
 def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
     try:
         # Fetch weekly data with a wider window
@@ -25,26 +33,18 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
         closes = []
         if not weekly.empty:
             for target_date in friday_dates:
-                # Convert target_date to pandas Timestamp for comparison
                 target_pd = pd.to_datetime(target_date)
-                # Get all dates <= target date
+                # Find the closest weekly date <= target_date
                 mask = weekly.index <= target_pd
+                if isinstance(mask, pd.Series):
+                    mask = mask.values
                 available_dates = weekly.index[mask]
                 
                 if len(available_dates) > 0:
                     closest_date = available_dates[-1]
-                    row = weekly.loc[closest_date]
-                    
-                    # Safely get Close or Adj Close value
-                    close_val = row['Close'] if 'Close' in row and pd.notna(row['Close']) else (
-                        row['Adj Close'] if 'Adj Close' in row else np.nan
-                    )
-                    
-                    # Ensure we get a scalar value
-                    if pd.api.types.is_float(close_val):
-                        closes.append(float(close_val))
-                    else:
-                        closes.append(np.nan)
+                    row = weekly.loc[[closest_date]]  # Keep as DataFrame for safe_get_price
+                    close_val = safe_get_price(row)
+                    closes.append(close_val)
                 else:
                     closes.append(np.nan)
         
@@ -59,7 +59,6 @@ def fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt):
         
         last_close_val = np.nan
         if not current_week.empty:
-            # Safely get last close value
             if 'Close' in current_week.columns:
                 last_close_series = current_week['Close'].dropna()
             elif 'Adj Close' in current_week.columns:
@@ -106,7 +105,8 @@ if uploaded_file:
             closes, last_close = fetch_weekly_and_current_closes(symbol, friday_dates, last_close_dt)
             
             # Include data even if incomplete
-            if any(pd.notna(x) for x in closes) or pd.notna(last_close):
+            valid_closes = [x for x in closes if pd.notna(x)]
+            if valid_closes or pd.notna(last_close):
                 result[symbol] = closes + [last_close]
             else:
                 st.warning(f"Ticker {symbol}: No data available. Skipped.")
