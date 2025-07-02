@@ -219,6 +219,7 @@ if uploaded_file:
                             "Select tickers to plot", 
                             ticker_options, 
                             default=ticker_options[:min(3, len(ticker_options))]
+                        )
                         
                         if tickers_to_plot:
                             tab1, tab2 = st.tabs(["Price Trend", "Normalized Performance"])
