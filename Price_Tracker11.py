@@ -5,36 +5,35 @@ from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
 
-st.title("📈 Weekly Price Tracker")
+st.title("📈 Weekly Price Tracker (Monday to Friday Weeks)")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
-def get_last_n_fridays(n):
+def get_last_n_weeks(n):
     today = datetime.today()
-    offset = (today.weekday() - 4) % 7  # 4 is Friday
+    offset = (today.weekday() - 4) % 7  # Days since last Friday (4 = Friday)
     last_friday = today - timedelta(days=offset)
-    return [(last_friday - timedelta(weeks=i)).date() for i in reversed(range(n))]
+    weeks = []
+    for i in reversed(range(n)):
+        this_friday = last_friday - timedelta(weeks=i)
+        this_monday = this_friday - timedelta(days=4)
+        weeks.append((this_monday, this_friday))
+    return weeks
 
-def fetch_friday_closes(symbol, n_weeks=6):
-    fridays = get_last_n_fridays(n_weeks)
-    first_monday = fridays[0] - timedelta(days=4)  # Monday of the first week
-    last_friday = fridays[-1]
-
-    # Download daily data
+def fetch_friday_closes(symbol, weeks):
+    first_monday = weeks[0][0]
+    last_friday = weeks[-1][1]
     data = yf.download(symbol, start=first_monday, end=last_friday + timedelta(days=1), interval="1d")
     if data.empty or "Close" not in data.columns:
         return None
-
     closes = []
-    for fri in fridays:
-        mon = fri - timedelta(days=4)
-        week_data = data.loc[(data.index.date >= mon) & (data.index.date <= fri)]
-        # If Friday exists, use that; otherwise use last available day that week
-        friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]
+    for monday, friday in weeks:
+        week_data = data.loc[(data.index.date >= monday) & (data.index.date <= friday)]
+        friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]  # 4 = Friday
         if not friday_close.empty:
             closes.append(friday_close.iloc[-1])
         elif not week_data.empty:
-            closes.append(week_data["Close"].iloc[-1])  # last available day that week
+            closes.append(week_data["Close"].iloc[-1])  # Last available day in week
         else:
             closes.append(np.nan)
     return closes if sum(np.isnan(closes)) == 0 else None
@@ -46,12 +45,12 @@ if uploaded_file:
         st.error("Excel file must contain 'Symbol' and 'Exchange' columns.")
     else:
         symbols = tickers_df["Symbol"].tolist()
-        week_fridays = get_last_n_fridays(6)
-        week_labels = [d.strftime('%Y-%m-%d') for d in week_fridays]
+        weeks = get_last_n_weeks(6)
+        week_labels = [f"{m.strftime('%Y-%m-%d')} to {f.strftime('%Y-%m-%d')}" for m, f in weeks]
 
         result = {}
         for symbol in symbols:
-            closes = fetch_friday_closes(symbol, n_weeks=6)
+            closes = fetch_friday_closes(symbol, weeks)
             if closes is not None and len(closes) == 6:
                 result[symbol] = closes
             else:
@@ -62,7 +61,7 @@ if uploaded_file:
             price_df.columns = week_labels
             price_df.reset_index(inplace=True)
             price_df.rename(columns={'index': 'Symbol'}, inplace=True)
-            st.subheader("Weekly Closing Prices (Mon–Fri, using Friday close)")
+            st.subheader("Weekly Closing Prices (Monday–Friday Weeks)")
             st.dataframe(price_df)
 
             # Calculate % price change week over week
@@ -89,7 +88,7 @@ if uploaded_file:
                     row = price_df[price_df["Symbol"] == sym]
                     if not row.empty:
                         ax.plot(week_labels, row.iloc[0, 1:], marker='o', label=sym)
-                ax.set_xlabel("Friday (Week End)")
+                ax.set_xlabel("Week (Monday to Friday)")
                 ax.set_ylabel("Closing Price")
                 ax.set_title("Weekly Closing Price Trend (Mon–Fri Weeks)")
                 ax.legend()
