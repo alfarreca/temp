@@ -43,11 +43,24 @@ def fetch_current_week_close(symbol, current_week_start):
     data = yf.download(symbol, start=current_week_start, end=today + timedelta(days=1), interval="1d")
     if data.empty or "Close" not in data.columns:
         return np.nan
-    # Use last available close in the range
     return float(round(data["Close"].iloc[-1], 3))
 
 def get_friday(label):
     return label.split(" to ")[1]
+
+def calculate_cagr(start, end, periods_per_year, periods):
+    # Avoid div by zero
+    if start <= 0 or end <= 0 or periods == 0:
+        return np.nan
+    return (end / start) ** (periods_per_year / periods) - 1
+
+def calculate_max_drawdown(prices):
+    if len(prices) < 2:
+        return 0.0
+    arr = np.array(prices, dtype=np.float64)
+    running_max = np.maximum.accumulate(arr)
+    drawdowns = (arr - running_max) / running_max
+    return drawdowns.min() * 100  # As percentage
 
 if uploaded_file:
     tickers_df = pd.read_excel(uploaded_file)
@@ -62,12 +75,13 @@ if uploaded_file:
         # Current week: from last Friday to latest close
         today = datetime.today()
         current_week_start = last_friday
-        # Find the latest close (for label)
-        last_data_close = (today if today.weekday() < 5 else today - timedelta(days=(today.weekday() - 4)))
+        last_data_close = today
+        # If today is Saturday/Sunday, go back to last available weekday
+        if today.weekday() >= 5:
+            last_data_close = today - timedelta(days=(today.weekday() - 4))
         current_week_label = f"{current_week_start.strftime('%Y-%m-%d')} to {last_data_close.strftime('%Y-%m-%d')}"
 
         result = {}
-        current_week_col = []
         for symbol in symbols:
             closes = fetch_friday_closes(symbol, weeks)
             current_close = fetch_current_week_close(symbol, current_week_start)
@@ -78,7 +92,6 @@ if uploaded_file:
         if result:
             # Add the column label
             all_labels = week_labels + [current_week_label]
-            # Weekly Closing Prices Table
             price_df = pd.DataFrame(result).T
             price_df.columns = all_labels
             price_df.reset_index(inplace=True)
@@ -98,7 +111,6 @@ if uploaded_file:
                 pct_change_df = pct_change_df.round(2)
                 pct_change_str = pct_change_df.applymap(lambda x: "" if pd.isna(x) else f"{x:+.2f}%")
                 pct_change_str.reset_index(inplace=True)
-                # Improved headers: only show Friday dates, for current week use the last date in label
                 pct_change_str.columns = ["Symbol"] + [
                     f"% Change {get_friday(all_labels[i-1])} to {get_friday(all_labels[i])}"
                     for i in range(1, len(all_labels))
@@ -106,23 +118,66 @@ if uploaded_file:
                 st.subheader("Weekly % Price Change")
                 st.dataframe(pct_change_str)
 
-            # --- Chart: Line plot of weekly closes ---
-            st.subheader("Price Trend Chart")
-            ticker_options = price_df["Symbol"].tolist()
-            tickers_to_plot = st.multiselect(
-                "Select tickers to plot", ticker_options, default=ticker_options[:min(3, len(ticker_options))]
-            )
-            if tickers_to_plot:
-                fig, ax = plt.subplots()
-                for sym in tickers_to_plot:
-                    row = price_df[price_df["Symbol"] == sym]
-                    if not row.empty:
-                        ax.plot(all_labels, row.iloc[0, 1:], marker='o', label=sym)
-                ax.set_xlabel("Week (Friday to Friday, Current: Fri to latest close)")
-                ax.set_ylabel("Closing Price")
-                ax.set_title("Weekly Closing Price Trend (Fri–Fri Weeks + Current Week)")
-                ax.legend()
-                plt.xticks(rotation=45)
-                st.pyplot(fig)
+            # --- Chart Tabs: Price Trend & Normalized Performance ---
+            tab1, tab2 = st.tabs(["Price Trend", "Normalized Performance"])
+
+            with tab1:
+                st.subheader("Weekly Closing Price Trend")
+                ticker_options = price_df["Symbol"].tolist()
+                tickers_to_plot = st.multiselect(
+                    "Select tickers to plot", ticker_options, default=ticker_options[:min(3, len(ticker_options))], key="trend"
+                )
+                if tickers_to_plot:
+                    fig, ax = plt.subplots()
+                    for sym in tickers_to_plot:
+                        row = price_df[price_df["Symbol"] == sym]
+                        if not row.empty:
+                            ax.plot(all_labels, row.iloc[0, 1:], marker='o', label=sym)
+                    ax.set_xlabel("Week (Friday to Friday, Current: Fri to latest close)")
+                    ax.set_ylabel("Closing Price")
+                    ax.set_title("Weekly Closing Price Trend")
+                    ax.legend()
+                    plt.xticks(rotation=45)
+                    st.pyplot(fig)
+
+            with tab2:
+                st.markdown("**Performance normalized to 100 at the start: compare pure relative gains/losses.**")
+                ticker_options = price_df["Symbol"].tolist()
+                tickers_to_plot = st.multiselect(
+                    "Select tickers to plot (normalized)", ticker_options, default=ticker_options[:min(3, len(ticker_options))], key="norm"
+                )
+                if tickers_to_plot:
+                    fig, ax = plt.subplots()
+                    cagr_dict = {}
+                    mdd_dict = {}
+                    for sym in tickers_to_plot:
+                        row = price_df[price_df["Symbol"] == sym]
+                        if not row.empty:
+                            prices = row.iloc[0, 1:].astype(float)
+                            norm_prices = (prices / prices.iloc[0]) * 100 if prices.iloc[0] != 0 else prices
+                            ax.plot(all_labels, norm_prices, marker='o', label=sym)
+                            # --- Advanced Stats ---
+                            # CAGR: (End / Start)^(periods_per_year/periods) - 1
+                            periods = len(norm_prices) - 1
+                            periods_per_year = 52  # Weekly, so 52 periods in a year
+                            cagr = calculate_cagr(norm_prices.iloc[0], norm_prices.iloc[-1], periods_per_year, periods)
+                            cagr_dict[sym] = f"{cagr*100:.2f}%" if not np.isnan(cagr) else "n/a"
+                            mdd = calculate_max_drawdown(norm_prices)
+                            mdd_dict[sym] = f"{mdd:.2f}%" if not np.isnan(mdd) else "n/a"
+                    ax.set_xlabel("Week")
+                    ax.set_ylabel("Normalized Price (Start=100)")
+                    ax.set_title("Normalized Weekly Performance")
+                    ax.legend()
+                    plt.xticks(rotation=45)
+                    st.pyplot(fig)
+                    
+                    # --- Display CAGR and Max Drawdown ---
+                    stats_df = pd.DataFrame({
+                        "CAGR (Annualized)": cagr_dict,
+                        "Max Drawdown": mdd_dict
+                    })
+                    st.subheader("Advanced Performance Metrics")
+                    st.dataframe(stats_df)
+
         else:
             st.error("No valid data fetched for the provided tickers.")
