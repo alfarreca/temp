@@ -28,8 +28,8 @@ def fetch_friday_closes(symbol, weeks):
         return None
     closes = []
     for monday, friday in weeks:
-        week_data = data.loc[(data.index.date >= monday) & (data.index.date <= friday)]
-        friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]  # 4 = Friday
+        week_data = data.loc[(data.index >= pd.Timestamp(monday)) & (data.index <= pd.Timestamp(friday))]
+        friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]
         if not friday_close.empty:
             closes.append(friday_close.iloc[-1])
         elif not week_data.empty:
