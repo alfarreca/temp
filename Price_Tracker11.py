@@ -31,9 +31,9 @@ def fetch_friday_closes(symbol, weeks):
         week_data = data.loc[(data.index >= pd.Timestamp(monday)) & (data.index <= pd.Timestamp(friday))]
         friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]
         if not friday_close.empty:
-            closes.append(friday_close.iloc[-1])
+            closes.append(round(friday_close.iloc[-1], 3))  # 3 decimals for price
         elif not week_data.empty:
-            closes.append(week_data["Close"].iloc[-1])  # Last available day in week
+            closes.append(round(week_data["Close"].iloc[-1], 3))
         else:
             closes.append(np.nan)
     return closes if sum(np.isnan(closes)) == 0 else None
@@ -57,26 +57,28 @@ if uploaded_file:
                 st.warning(f"Ticker {symbol}: Could not fetch 6 weeks of valid closing prices. Skipped.")
 
         if result:
+            # --- Weekly Closing Prices Table ---
             price_df = pd.DataFrame(result).T
             price_df.columns = week_labels
             price_df.reset_index(inplace=True)
             price_df.rename(columns={'index': 'Symbol'}, inplace=True)
             st.subheader("Weekly Closing Prices (Monday–Friday Weeks)")
-            st.dataframe(price_df)
+            st.dataframe(price_df.style.format(precision=2))  # nice float formatting
 
-            # Calculate % price change week over week
+            # --- Weekly % Change as percentage string ---
             pct_change_df = price_df.set_index("Symbol")[week_labels].pct_change(axis=1) * 100
             pct_change_df = pct_change_df.iloc[:, 1:]
             pct_change_df = pct_change_df.round(2)
-            pct_change_df.reset_index(inplace=True)
-            pct_change_df.columns = ["Symbol"] + [
+            pct_change_str = pct_change_df.applymap(lambda x: "" if pd.isna(x) else f"{x:+.2f}%")
+            pct_change_str.reset_index(inplace=True)
+            pct_change_str.columns = ["Symbol"] + [
                 f"% Change {week_labels[i-1]} to {week_labels[i]}"
                 for i in range(1, 6)
             ]
             st.subheader("Weekly % Price Change")
-            st.dataframe(pct_change_df)
+            st.dataframe(pct_change_str)
 
-            # Chart: Line plot of weekly closes
+            # --- Chart: Line plot of weekly closes ---
             st.subheader("Price Trend Chart")
             ticker_options = price_df["Symbol"].tolist()
             tickers_to_plot = st.multiselect(
