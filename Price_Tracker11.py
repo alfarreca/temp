@@ -38,6 +38,10 @@ def fetch_friday_closes(symbol, weeks):
             closes.append(np.nan)
     return closes if sum(np.isnan(closes)) == 0 else None
 
+def get_friday(label):
+    # label is like "2025-05-19 to 2025-05-23"
+    return label.split(" to ")[1]
+
 if uploaded_file:
     tickers_df = pd.read_excel(uploaded_file)
 
@@ -78,9 +82,10 @@ if uploaded_file:
                 pct_change_df = pct_change_df.round(2)
                 pct_change_str = pct_change_df.applymap(lambda x: "" if pd.isna(x) else f"{x:+.2f}%")
                 pct_change_str.reset_index(inplace=True)
+                # Improved headers: only show Friday dates
                 pct_change_str.columns = ["Symbol"] + [
-                    f"% Change {week_labels[i-1]} to {week_labels[i]}"
-                    for i in range(1, 6)
+                    f"% Change {get_friday(week_labels[i-1])} to {get_friday(week_labels[i])}"
+                    for i in range(1, len(week_labels))
                 ]
                 st.subheader("Weekly % Price Change")
                 st.dataframe(pct_change_str)
