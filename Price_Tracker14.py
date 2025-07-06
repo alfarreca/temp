@@ -38,13 +38,11 @@ def fetch_friday_closes(symbol, weeks):
             closes.append(np.nan)
     return closes if sum(np.isnan(closes)) == 0 else None
 
-# FIXED: Always return the last available close for the current week, even if it is just Friday's close
 def fetch_current_week_close(symbol, current_week_start):
     today = datetime.today()
     data = yf.download(symbol, start=current_week_start, end=today + timedelta(days=1), interval="1d")
     if data.empty or "Close" not in data.columns:
         return np.nan
-    # Return last available close, not just only if new data exists after Friday
     return float(round(data["Close"].dropna().iloc[-1], 3))
 
 def get_friday(label):
@@ -69,37 +67,46 @@ def calculate_strategy_scores(price_df, all_labels):
         closes = row[all_labels].astype(float).values
         symbol = row["Symbol"]
 
-        # Momentum Score: % return over last week
-        if len(closes) < 2 or closes[-2] == 0:
-            momentum_score = 0
+        # Only score if all closes are real numbers (no NaN)
+        if np.isnan(closes).any():
+            momentum_score = None
+            vol_adj_score = None
+            trend_consistency = None
+            last_week_pct = None
+            total_return = None
+            all_around_score = 0
         else:
-            momentum_score = ((closes[-1] - closes[-2]) / closes[-2]) * 100
+            # Momentum Score: % return over last week
+            if len(closes) < 2 or closes[-2] == 0:
+                momentum_score = 0
+            else:
+                momentum_score = ((closes[-1] - closes[-2]) / closes[-2]) * 100
 
-        # Volatility-Adj Score: Sharpe-like, mean return/std
-        returns = np.diff(closes) / closes[:-1]
-        mean_return = np.nanmean(returns)
-        std_return = np.nanstd(returns)
-        vol_adj_score = mean_return / std_return * 100 if std_return > 0 else mean_return * 100
+            # Volatility-Adj Score: Sharpe-like, mean return/std
+            returns = np.diff(closes) / closes[:-1]
+            mean_return = np.nanmean(returns)
+            std_return = np.nanstd(returns)
+            vol_adj_score = mean_return / std_return * 100 if std_return > 0 else mean_return * 100
 
-        # Trend Consistency: up weeks out of last 5
-        trend_consistency = np.sum(returns[-5:] > 0)
+            # Trend Consistency: up weeks out of last 5
+            trend_consistency = int(np.sum(returns[-5:] > 0))
 
-        # Last Week % Change: % change in the last week
-        last_week_pct = momentum_score
+            # Last Week % Change: % change in the last week
+            last_week_pct = momentum_score
 
-        # Total Return %: from first to last
-        total_return = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] else 0
+            # Total Return %: from first to last
+            total_return = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] else 0
 
-        # All-Arounder Score: custom sum (example: Trend*10 + VolAdj + Momentum)
-        all_around_score = trend_consistency * 10 + vol_adj_score + momentum_score
+            # All-Arounder Score: custom sum (example: Trend*10 + VolAdj + Momentum)
+            all_around_score = trend_consistency * 10 + vol_adj_score + momentum_score
 
         scores.append({
             "Symbol": symbol,
-            "Momentum Score": round(momentum_score, 2),
-            "Volatility-Adj Score": round(vol_adj_score, 2),
-            "Trend Consistency": int(trend_consistency),
-            "Last Week % Change": round(last_week_pct, 2),
-            "Total Return %": round(total_return, 2),
+            "Momentum Score": None if momentum_score is None else round(momentum_score, 2),
+            "Volatility-Adj Score": None if vol_adj_score is None else round(vol_adj_score, 2),
+            "Trend Consistency": trend_consistency,
+            "Last Week % Change": None if last_week_pct is None else round(last_week_pct, 2),
+            "Total Return %": None if total_return is None else round(total_return, 2),
             "All-Arounder Score": int(np.nan_to_num(all_around_score)),
         })
 
@@ -135,7 +142,6 @@ if uploaded_file:
                 st.warning(f"Ticker {symbol}: Could not fetch 6 weeks of valid closing prices. Skipped.")
 
         if result:
-            # Add the column label
             all_labels = week_labels + [current_week_label]
             price_df = pd.DataFrame(result).T
             price_df.columns = all_labels
@@ -146,10 +152,14 @@ if uploaded_file:
             st.subheader("Weekly Closing Prices (Fri–Fri Weeks + Current Week)")
             st.dataframe(price_df.style.format(precision=2))
 
+            # Use only columns that are NOT all NaN for any row for scoring:
+            non_nan_cols = [col for col in all_labels if not price_df[col].isna().all()]
+            # (optional: if you want only rows with NO NaN for any week, use: price_df.dropna(subset=non_nan_cols))
+
             # --- Weekly % Change as percentage string (for the dedicated tab) ---
             pct_change_str = None
             try:
-                pct_change_df = price_df.set_index("Symbol")[all_labels].astype(float).pct_change(axis=1) * 100
+                pct_change_df = price_df.set_index("Symbol")[non_nan_cols].astype(float).pct_change(axis=1) * 100
             except Exception as e:
                 st.error(f"Error computing percent change: {e}")
             else:
@@ -158,11 +168,10 @@ if uploaded_file:
                 pct_change_str = pct_change_df.applymap(lambda x: "" if pd.isna(x) else f"{x:+.2f}%")
                 pct_change_str.reset_index(inplace=True)
                 pct_change_str.columns = ["Symbol"] + [
-                    f"% Change {get_friday(all_labels[i-1])} to {get_friday(all_labels[i])}"
-                    for i in range(1, len(all_labels))
+                    f"% Change {get_friday(non_nan_cols[i-1])} to {get_friday(non_nan_cols[i])}"
+                    for i in range(1, len(non_nan_cols))
                 ]
 
-            # --- Chart Tabs: Price Trend & Normalized Performance & Weekly % Change & Ticker Scores ---
             tab1, tab2, tab3, tab4 = st.tabs([
                 "Price Trend",
                 "Normalized Performance",
@@ -181,7 +190,7 @@ if uploaded_file:
                     for sym in tickers_to_plot:
                         row = price_df[price_df["Symbol"] == sym]
                         if not row.empty:
-                            ax.plot(all_labels, row.iloc[0, 1:], marker='o', label=sym)
+                            ax.plot(non_nan_cols, row[non_nan_cols].iloc[0], marker='o', label=sym)
                     ax.set_xlabel("Week (Friday to Friday, Current: Fri to latest close)")
                     ax.set_ylabel("Closing Price")
                     ax.set_title("Weekly Closing Price Trend")
@@ -202,9 +211,9 @@ if uploaded_file:
                     for sym in tickers_to_plot:
                         row = price_df[price_df["Symbol"] == sym]
                         if not row.empty:
-                            prices = row.iloc[0, 1:].astype(float)
+                            prices = row[non_nan_cols].astype(float)
                             norm_prices = (prices / prices.iloc[0]) * 100 if prices.iloc[0] != 0 else prices
-                            ax.plot(all_labels, norm_prices, marker='o', label=sym)
+                            ax.plot(non_nan_cols, norm_prices, marker='o', label=sym)
                             periods = len(norm_prices) - 1
                             periods_per_year = 52
                             cagr = calculate_cagr(norm_prices.iloc[0], norm_prices.iloc[-1], periods_per_year, periods)
@@ -230,7 +239,7 @@ if uploaded_file:
                     st.dataframe(pct_change_str)
 
             with tab4:
-                score_df = calculate_strategy_scores(price_df, all_labels)
+                score_df = calculate_strategy_scores(price_df, non_nan_cols)
                 score_df["Flags"] = ""
                 if not score_df.empty:
                     if score_df["Momentum Score"].notna().any():
