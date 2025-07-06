@@ -230,11 +230,15 @@ if uploaded_file:
             with tab4:
                 score_df = calculate_strategy_scores(price_df, all_labels)
                 score_df["Flags"] = ""
-                breakout_idx = score_df["Momentum Score"].idxmax()
-                score_df.at[breakout_idx, "Flags"] += "🟢 "
-                all_around_idxs = score_df.nlargest(3, "All-Arounder Score").index
-                for i in all_around_idxs:
-                    score_df.at[i, "Flags"] += "🔵 "
+                if not score_df.empty:
+                    if score_df["Momentum Score"].notna().any():
+                        breakout_idx = score_df["Momentum Score"].idxmax()
+                        if breakout_idx in score_df.index:
+                            score_df.at[breakout_idx, "Flags"] += "🟢 "
+                    all_around_idxs = score_df.nlargest(3, "All-Arounder Score").index
+                    for i in all_around_idxs:
+                        if i in score_df.index:
+                            score_df.at[i, "Flags"] += "🔵 "
                 score_df = score_df[["Flags", "Symbol", "Momentum Score", "Volatility-Adj Score", "Trend Consistency",
                                     "Last Week % Change", "Total Return %", "All-Arounder Score"]]
                 st.markdown("### Ticker Scores (5 Strategies)")
