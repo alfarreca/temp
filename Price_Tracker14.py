@@ -4,7 +4,6 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
-
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -56,20 +55,14 @@ def calculate_strategy_scores(price_df, all_labels):
     for idx, row in price_df.iterrows():
         closes = row[all_labels].astype(float).values
         symbol = row["Symbol"]
-
         momentum_score = ((closes[-1] - closes[-2]) / closes[-2]) * 100 if len(closes) > 1 and closes[-2] != 0 else 0
-
         returns = np.diff(closes) / closes[:-1]
         mean_return = np.nanmean(returns)
         std_return = np.nanstd(returns)
         vol_adj_score = mean_return / std_return * 100 if std_return > 0 else mean_return * 100
-
         trend_consistency = np.sum(returns[-5:] > 0)
-
         total_return = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] else 0
-
         all_around_score = trend_consistency * 10 + vol_adj_score + momentum_score
-
         scores.append({
             "Symbol": symbol,
             "Momentum Score": round(momentum_score, 2),
@@ -79,23 +72,19 @@ def calculate_strategy_scores(price_df, all_labels):
             "Total Return %": round(total_return, 2),
             "All-Arounder Score": int(np.nan_to_num(all_around_score)),
         })
-
     score_df = pd.DataFrame(scores).sort_values("All-Arounder Score", ascending=False).reset_index(drop=True)
     return score_df
 
 if uploaded_file:
     tickers_df = pd.read_excel(uploaded_file)
-
     if not all(col in tickers_df.columns for col in ["Symbol", "Exchange"]):
         st.error("Excel file must contain 'Symbol' and 'Exchange' columns.")
     else:
         symbols = tickers_df["Symbol"].tolist()
         weeks, last_friday = get_last_n_weeks(6)
         week_labels = [f"{m.strftime('%Y-%m-%d')} to {f.strftime('%Y-%m-%d')}" for m, f in weeks]
-
         current_week_start = last_friday
         current_week_label = f"{current_week_start.strftime('%Y-%m-%d')} to {datetime.today().strftime('%Y-%m-%d')}"
-
         result = {}
         for symbol in symbols:
             closes = fetch_friday_closes(symbol, weeks)
@@ -104,23 +93,18 @@ if uploaded_file:
                 result[symbol] = closes + [current_close]
             else:
                 st.warning(f"Ticker {symbol}: Could not fetch 6 weeks of valid closing prices. Skipped.")
-
         if result:
             all_labels = week_labels + [current_week_label]
             price_df = pd.DataFrame(result).T
             price_df.columns = all_labels
             price_df.reset_index(inplace=True)
             price_df.rename(columns={'index': 'Symbol'}, inplace=True)
-
             st.subheader("Weekly Closing Prices")
             st.dataframe(price_df)
-
             tab1, tab2, tab3, tab4 = st.tabs(["Price Trend", "Normalized Performance", "Ticker Scores", "ML Prediction"])
-
             with tab3:
                 score_df = calculate_strategy_scores(price_df, all_labels)
                 st.subheader("Ticker Scores")
                 st.dataframe(score_df)
-
         else:
             st.error("No valid data fetched for the provided tickers.")
