@@ -67,7 +67,6 @@ def calculate_strategy_scores(price_df, all_labels):
         closes = row[all_labels].astype(float).values
         symbol = row["Symbol"]
 
-        # Only score if all closes are real numbers (no NaN)
         if np.isnan(closes).any():
             momentum_score = None
             vol_adj_score = None
@@ -154,7 +153,6 @@ if uploaded_file:
 
             # Use only columns that are NOT all NaN for any row for scoring:
             non_nan_cols = [col for col in all_labels if not price_df[col].isna().all()]
-            # (optional: if you want only rows with NO NaN for any week, use: price_df.dropna(subset=non_nan_cols))
 
             # --- Weekly % Change as percentage string (for the dedicated tab) ---
             pct_change_str = None
@@ -212,7 +210,11 @@ if uploaded_file:
                         row = price_df[price_df["Symbol"] == sym]
                         if not row.empty:
                             prices = row[non_nan_cols].astype(float)
-                            norm_prices = (prices / prices.iloc[0]) * 100 if prices.iloc[0] != 0 else prices
+                            # --- FIX for ambiguous truth value error ---
+                            if len(prices.columns) == 0 or pd.isna(prices.iloc[0,0]) or prices.iloc[0,0] == 0:
+                                norm_prices = prices.iloc[0]
+                            else:
+                                norm_prices = (prices.iloc[0] / prices.iloc[0,0]) * 100
                             ax.plot(non_nan_cols, norm_prices, marker='o', label=sym)
                             periods = len(norm_prices) - 1
                             periods_per_year = 52
