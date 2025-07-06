@@ -38,12 +38,14 @@ def fetch_friday_closes(symbol, weeks):
             closes.append(np.nan)
     return closes if sum(np.isnan(closes)) == 0 else None
 
+# FIXED: Always return the last available close for the current week, even if it is just Friday's close
 def fetch_current_week_close(symbol, current_week_start):
     today = datetime.today()
     data = yf.download(symbol, start=current_week_start, end=today + timedelta(days=1), interval="1d")
     if data.empty or "Close" not in data.columns:
         return np.nan
-    return float(round(data["Close"].iloc[-1], 3))
+    # Return last available close, not just only if new data exists after Friday
+    return float(round(data["Close"].dropna().iloc[-1], 3))
 
 def get_friday(label):
     return label.split(" to ")[1]
