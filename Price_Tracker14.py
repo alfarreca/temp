@@ -4,10 +4,8 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
 
-st.title("📈 Weekly Price Tracker (Fri–Fri Weeks + Current Week + Scoring + ML Prediction)")
+st.title("📈 Weekly Price Tracker (Fri–Fri Weeks + Current Week + Scoring)")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
@@ -146,7 +144,7 @@ if uploaded_file:
             st.subheader("Weekly Closing Prices (Fri–Fri Weeks + Current Week)")
             st.dataframe(price_df.style.format(precision=2))
 
-            # --- Weekly % Change as percentage string (for the new dedicated tab) ---
+            # --- Weekly % Change as percentage string (for the dedicated tab) ---
             pct_change_str = None
             try:
                 pct_change_df = price_df.set_index("Symbol")[all_labels].astype(float).pct_change(axis=1) * 100
@@ -162,13 +160,12 @@ if uploaded_file:
                     for i in range(1, len(all_labels))
                 ]
 
-            # --- Chart Tabs: Price Trend & Normalized Performance & Weekly % Change & Ticker Scores & ML ---
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            # --- Chart Tabs: Price Trend & Normalized Performance & Weekly % Change & Ticker Scores ---
+            tab1, tab2, tab3, tab4 = st.tabs([
                 "Price Trend",
                 "Normalized Performance",
                 "Weekly % Price Change",
-                "Ticker Scores (5 Strategies)",
-                "ML Next Week Prediction"
+                "Ticker Scores (5 Strategies)"
             ])
 
             with tab1:
@@ -248,65 +245,6 @@ if uploaded_file:
                     st.success(f"🟢 **Breakout candidates:** {', '.join(breakout_candidates)}")
                 if all_arounders:
                     st.info(f"🔵 **All-arounders:** {', '.join(all_arounders)}")
-
-            with tab5:
-                st.markdown("### ML Next Week Prediction")
-                # --- Simulate rolling historical feature table for all tickers ---
-                history = []
-                for idx, row in price_df.iterrows():
-                    closes = row[all_labels].astype(float).values
-                    symbol = row["Symbol"]
-                    for i in range(2, len(closes)-1):
-                        last_week_return = (closes[i] - closes[i-1]) / closes[i-1] * 100 if closes[i-1] != 0 else 0
-                        prev_week_return = (closes[i-1] - closes[i-2]) / closes[i-2] * 100 if closes[i-2] != 0 else 0
-                        trend = np.sum(np.diff(closes[:i+1]) > 0)
-                        volatility = np.std(np.diff(closes[:i+1]) / closes[:i]) if np.std(closes[:i+1]) > 0 else 0
-                        total_return = (closes[i] - closes[0]) / closes[0] * 100 if closes[0] != 0 else 0
-                        next_week_return = (closes[i+1] - closes[i]) / closes[i] * 100 if closes[i] != 0 else 0
-                        history.append({
-                            "Symbol": symbol,
-                            "Momentum": last_week_return,
-                            "Prev Momentum": prev_week_return,
-                            "Trend Consistency": trend,
-                            "Volatility": volatility,
-                            "Total Return": total_return,
-                            "Next_Week_Return": next_week_return,
-                        })
-                hist_df = pd.DataFrame(history)
-                if not hist_df.empty and hist_df["Momentum"].notna().any():
-                    X = hist_df[["Momentum", "Prev Momentum", "Trend Consistency", "Volatility", "Total Return"]]
-                    y = hist_df["Next_Week_Return"]
-                    scaler = StandardScaler()
-                    X_scaled = scaler.fit_transform(X)
-                    model = RandomForestRegressor(n_estimators=50, random_state=42)
-                    model.fit(X_scaled, y)
-                    importances = pd.Series(model.feature_importances_, index=X.columns).sort_values(ascending=False)
-                    st.subheader("ML Model Feature Importances")
-                    st.bar_chart(importances)
-                    # Predict for current tickers (using their latest features)
-                    latest_features = []
-                    symbols_pred = []
-                    for idx, row in price_df.iterrows():
-                        closes = row[all_labels].astype(float).values
-                        symbol = row["Symbol"]
-                        last_week_return = (closes[-1] - closes[-2]) / closes[-2] * 100 if closes[-2] != 0 else 0
-                        prev_week_return = (closes[-2] - closes[-3]) / closes[-3] * 100 if closes[-3] != 0 else 0
-                        trend = np.sum(np.diff(closes) > 0)
-                        volatility = np.std(np.diff(closes) / closes[:-1]) if np.std(closes) > 0 else 0
-                        total_return = (closes[-1] - closes[0]) / closes[0] * 100 if closes[0] != 0 else 0
-                        features = [last_week_return, prev_week_return, trend, volatility, total_return]
-                        latest_features.append(features)
-                        symbols_pred.append(symbol)
-                    latest_X = scaler.transform(latest_features)
-                    predicted_returns = model.predict(latest_X)
-                    predicted_df = pd.DataFrame({
-                        "Symbol": symbols_pred,
-                        "Predicted_Next_Week_%": predicted_returns
-                    }).sort_values("Predicted_Next_Week_%", ascending=False).reset_index(drop=True)
-                    st.subheader("ML Model: Predicted Top Next Week Winners")
-                    st.dataframe(predicted_df.head(10))
-                else:
-                    st.info("Not enough historical data to train ML model. Collect more weekly data for stronger predictions.")
 
         else:
             st.error("No valid data fetched for the provided tickers.")
