@@ -5,9 +5,6 @@ from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
 
-# NEW: for button-driven selection
-from streamlit import session_state as st_session
-
 st.title("📈 Weekly Price Tracker (Fri–Fri Weeks + Current Week + Scoring)")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
@@ -207,16 +204,15 @@ if uploaded_file:
                 st.markdown("**Performance normalized to 100 at the start: compare pure relative gains/losses.**")
                 ticker_options = price_df["Symbol"].tolist()
 
-                # --- Select All Button Logic ---
                 col1, col2 = st.columns([4,1])
                 with col1:
                     tickers_to_plot = st.multiselect(
                         "Select tickers to plot (normalized)", ticker_options, 
-                        default=st_session.get('norm', ticker_options[:min(3, len(ticker_options))]), key="norm"
+                        default=st.session_state.get('norm', ticker_options[:min(3, len(ticker_options))]), key="norm"
                     )
                 with col2:
                     if st.button("Select all tickers to plot", key="norm_select_all_btn"):
-                        st_session.norm = ticker_options
+                        st.session_state["norm"] = ticker_options
                         st.experimental_rerun()
 
                 if tickers_to_plot:
