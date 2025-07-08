@@ -11,7 +11,7 @@ uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
 
 def get_last_n_weeks(n):
     today = datetime.today()
-    offset = (today.weekday() - 4) % 7
+    offset = (today.weekday() - 4) % 7  # 4 = Friday
     last_friday = today - timedelta(days=offset)
     weeks = []
     for i in reversed(range(n)):
@@ -75,7 +75,15 @@ def calculate_strategy_scores(price_df, all_labels):
             momentum_score = ((closes[-1] - closes[-2]) / closes[-2]) * 100
             total_return = ((closes[-1] - closes[0]) / closes[0]) * 100
             all_around_score = trend_consistency * 10 + vol_adj_score + momentum_score
-            scores.append({"Symbol": symbol, "Momentum Score": momentum_score, "Volatility-Adj Score": vol_adj_score, "Trend Consistency": trend_consistency, "Last Week % Change": momentum_score, "Total Return %": total_return, "All-Arounder Score": all_around_score})
+            scores.append({
+                "Symbol": symbol,
+                "Momentum Score": momentum_score,
+                "Volatility-Adj Score": vol_adj_score,
+                "Trend Consistency": trend_consistency,
+                "Last Week % Change": momentum_score,
+                "Total Return %": total_return,
+                "All-Arounder Score": all_around_score
+            })
     return pd.DataFrame(scores).sort_values("All-Arounder Score", ascending=False).reset_index(drop=True)
 
 if uploaded_file:
@@ -87,7 +95,14 @@ if uploaded_file:
     week_labels = [f"{m.strftime('%Y-%m-%d')} to {f.strftime('%Y-%m-%d')}" for m, f in weeks]
 
     current_week_label = f"{last_friday.strftime('%Y-%m-%d')} to {datetime.today().strftime('%Y-%m-%d')}"
-    result = {symbol: fetch_friday_closes(symbol, weeks) + [fetch_current_week_close(symbol, last_friday)] for symbol in symbols if fetch_friday_closes(symbol, weeks)}
+    result = {}
+    for symbol in symbols:
+        closes = fetch_friday_closes(symbol, weeks)
+        if closes is not None:
+            current_close = fetch_current_week_close(symbol, last_friday)
+            result[symbol] = closes + [current_close]
+        else:
+            st.warning(f"Data not available for {symbol}")
 
     if result:
         all_labels = week_labels + [current_week_label]
@@ -103,13 +118,16 @@ if uploaded_file:
             if "norm_selected_tickers" not in st.session_state:
                 st.session_state["norm_selected_tickers"] = ticker_options[:3]
 
-            col1, col2 = st.columns([4,1])
+            col1, col2 = st.columns([4, 1])
             with col1:
-                tickers_to_plot = st.multiselect("Select tickers", ticker_options, default=st.session_state["norm_selected_tickers"], key="norm")
+                tickers_to_plot = st.multiselect(
+                    "Select tickers", ticker_options,
+                    default=st.session_state["norm_selected_tickers"],
+                    key="norm"
+                )
             with col2:
                 if st.button("Select all"):
                     st.session_state["norm_selected_tickers"] = ticker_options
-                    st.experimental_rerun()
 
             st.session_state["norm_selected_tickers"] = tickers_to_plot
 
