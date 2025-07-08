@@ -111,63 +111,92 @@ if uploaded_file:
                 price_df.reset_index(inplace=True)
                 for col in all_labels:
                     price_df[col] = pd.to_numeric(price_df[col], errors="coerce")
-                st.subheader("Weekly Closing Prices (Fri–Fri Weeks + Current Week)")
-                st.dataframe(price_df.style.format(precision=2), use_container_width=True)
+
+                tabs = st.tabs([
+                    "Price Trend",
+                    "Normalized Performance",
+                    "Weekly % Price Change",
+                    "Ticker Scores (5 Strategies)"
+                ])
+
+                # --- Price Trend Tab ---
+                with tabs[0]:
+                    st.subheader("Price Trend")
+                    st.dataframe(price_df.style.format(precision=2), use_container_width=True)
 
                 # --- Normalized Performance Tab ---
-                st.subheader("Normalized Performance")
+                with tabs[1]:
+                    st.subheader("Normalized Performance")
+                    norm_df = price_df.set_index("Symbol")[all_labels]
+                    normed = norm_df.div(norm_df.iloc[:, 0], axis=0) * 100
 
-                norm_df = price_df.set_index("Symbol")[all_labels]
-                normed = norm_df.div(norm_df.iloc[:, 0], axis=0) * 100
+                    fig = go.Figure()
+                    for symbol in normed.index:
+                        fig.add_trace(go.Scatter(
+                            x=all_labels,
+                            y=normed.loc[symbol],
+                            mode="lines+markers",
+                            name=symbol
+                        ))
+                    fig.update_layout(
+                        title="Normalized Price Performance (Start = 100)",
+                        xaxis_title="Week",
+                        yaxis_title="Normalized Price",
+                        height=500
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
-                fig = go.Figure()
-                for symbol in normed.index:
-                    fig.add_trace(go.Scatter(
-                        x=all_labels,
-                        y=normed.loc[symbol],
-                        mode="lines+markers",
-                        name=symbol
-                    ))
-                fig.update_layout(
-                    title="Normalized Price Performance (Start = 100)",
-                    xaxis_title="Week",
-                    yaxis_title="Normalized Price",
-                    height=500
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                    # --- Advanced Performance Metrics Table ---
+                    stats_data = []
+                    for symbol in norm_df.index:
+                        series = norm_df.loc[symbol].dropna()
+                        if len(series) >= 2:
+                            start, end = series.iloc[0], series.iloc[-1]
+                            cagr = calculate_cagr(start, end, periods_per_year=52, periods=len(series))
+                            mdd = calculate_max_drawdown(series)
+                            stats_data.append({
+                                "Symbol": symbol,
+                                "CAGR (Annualized)": f"{cagr * 100:.2f}%",
+                                "Max Drawdown": f"{mdd:.2f}%"
+                            })
+                        else:
+                            stats_data.append({
+                                "Symbol": symbol,
+                                "CAGR (Annualized)": "N/A",
+                                "Max Drawdown": "N/A"
+                            })
+                    stats_df = pd.DataFrame(stats_data).set_index("Symbol")
 
-                # --- Advanced Performance Metrics Table ---
-                stats_data = []
-                for symbol in norm_df.index:
-                    series = norm_df.loc[symbol].dropna()
-                    if len(series) >= 2:
-                        start, end = series.iloc[0], series.iloc[-1]
-                        cagr = calculate_cagr(start, end, periods_per_year=52, periods=len(series))
-                        mdd = calculate_max_drawdown(series)
-                        stats_data.append({
-                            "Symbol": symbol,
-                            "CAGR (Annualized)": f"{cagr * 100:.2f}%",
-                            "Max Drawdown": f"{mdd:.2f}%"
-                        })
-                    else:
-                        stats_data.append({
-                            "Symbol": symbol,
-                            "CAGR (Annualized)": "N/A",
-                            "Max Drawdown": "N/A"
-                        })
-                stats_df = pd.DataFrame(stats_data).set_index("Symbol")
+                    # Add Ticker, Name, Country columns
+                    names_dict, countries_dict = get_live_names_and_countries(stats_df.index.tolist())
+                    stats_df["Ticker"] = stats_df.index
+                    stats_df["Name"] = stats_df.index.map(names_dict)
+                    stats_df["Country"] = stats_df.index.map(countries_dict)
+                    # Order columns as: Ticker, Name, Country, CAGR, Max Drawdown
+                    show_cols = ["Ticker", "Name", "Country"] + [col for col in stats_df.columns if col not in ["Ticker", "Name", "Country"]]
+                    stats_df = stats_df[show_cols]
 
-                # Add Ticker, Name, Country columns
-                names_dict, countries_dict = get_live_names_and_countries(stats_df.index.tolist())
-                stats_df["Ticker"] = stats_df.index
-                stats_df["Name"] = stats_df.index.map(names_dict)
-                stats_df["Country"] = stats_df.index.map(countries_dict)
-                # Order columns as: Ticker, Name, Country, CAGR, Max Drawdown
-                show_cols = ["Ticker", "Name", "Country"] + [col for col in stats_df.columns if col not in ["Ticker", "Name", "Country"]]
-                stats_df = stats_df[show_cols]
+                    st.subheader("Advanced Performance Metrics")
+                    st.dataframe(stats_df, use_container_width=True)
 
-                st.subheader("Advanced Performance Metrics")
-                st.dataframe(stats_df, use_container_width=True)
+                # --- Weekly % Price Change Tab ---
+                with tabs[2]:
+                    st.subheader("Weekly % Price Change")
+                    pct_df = price_df.set_index("Symbol")[all_labels].pct_change(axis=1) * 100
+                    pct_df = pct_df.round(2)
+                    st.dataframe(pct_df, use_container_width=True)
+
+                # --- Ticker Scores Tab ---
+                with tabs[3]:
+                    st.subheader("Ticker Scores (5 Strategies)")
+                    # Dummy example for strategy scores
+                    scores_df = pd.DataFrame(index=norm_df.index)
+                    scores_df["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
+                    scores_df["Volatility"] = norm_df.std(axis=1)
+                    scores_df["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
+                    scores_df["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
+                    scores_df["All-Around"] = scores_df.sum(axis=1)
+                    st.dataframe(scores_df.round(2), use_container_width=True)
 
 else:
     st.info("Please upload an Excel file with at least 'Symbol' and 'Exchange' columns.")
