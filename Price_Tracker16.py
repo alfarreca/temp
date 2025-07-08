@@ -204,12 +204,7 @@ if uploaded_file:
                 st.markdown("**Performance normalized to 100 at the start: compare pure relative gains/losses.**")
                 ticker_options = price_df["Symbol"].tolist()
 
-                # -- "Select all" logic using a trigger flag --
                 if "norm_select_all_trigger" not in st.session_state:
-                    st.session_state["norm_select_all_trigger"] = False
-
-                if st.session_state["norm_select_all_trigger"]:
-                    st.session_state["norm"] = ticker_options
                     st.session_state["norm_select_all_trigger"] = False
 
                 col1, col2 = st.columns([4,1])
@@ -221,7 +216,12 @@ if uploaded_file:
                 with col2:
                     if st.button("Select all tickers to plot", key="norm_select_all_btn"):
                         st.session_state["norm_select_all_trigger"] = True
-                        st.experimental_rerun()
+
+                # --- SAFE rerun after all blocks! ---
+                if st.session_state.get("norm_select_all_trigger", False):
+                    st.session_state["norm"] = ticker_options
+                    st.session_state["norm_select_all_trigger"] = False
+                    st.experimental_rerun()
 
                 if tickers_to_plot:
                     fig, ax = plt.subplots()
