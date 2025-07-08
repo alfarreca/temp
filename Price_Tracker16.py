@@ -181,12 +181,21 @@ if uploaded_file:
                 "Ticker Scores (5 Strategies)"
             ])
 
+            # ---- PRICE TREND TAB with Select All ----
             with tab1:
                 st.subheader("Weekly Closing Price Trend")
                 ticker_options = price_df["Symbol"].tolist()
+                if "selected_trend" not in st.session_state:
+                    st.session_state.selected_trend = []
+                if st.button("Select All", key="trend_select_all"):
+                    st.session_state.selected_trend = ticker_options
                 tickers_to_plot = st.multiselect(
-                    "Select tickers to plot", ticker_options, default=[], key="trend"
+                    "Select tickers to plot",
+                    ticker_options,
+                    default=st.session_state.selected_trend,
+                    key="trend"
                 )
+                st.session_state.selected_trend = tickers_to_plot
                 if tickers_to_plot:
                     fig, ax = plt.subplots()
                     for sym in tickers_to_plot:
@@ -200,12 +209,21 @@ if uploaded_file:
                     plt.xticks(rotation=45)
                     st.pyplot(fig)
 
+            # ---- NORMALIZED PERFORMANCE TAB with Select All ----
             with tab2:
                 st.markdown("**Performance normalized to 100 at the start: compare pure relative gains/losses.**")
                 ticker_options = price_df["Symbol"].tolist()
+                if "selected_norm" not in st.session_state:
+                    st.session_state.selected_norm = []
+                if st.button("Select All", key="norm_select_all"):
+                    st.session_state.selected_norm = ticker_options
                 tickers_to_plot = st.multiselect(
-                    "Select tickers to plot (normalized)", ticker_options, default=[], key="norm"
+                    "Select tickers to plot (normalized)",
+                    ticker_options,
+                    default=st.session_state.selected_norm,
+                    key="norm"
                 )
+                st.session_state.selected_norm = tickers_to_plot
                 if tickers_to_plot:
                     fig, ax = plt.subplots()
                     cagr_dict = {}
@@ -214,7 +232,6 @@ if uploaded_file:
                         row = price_df[price_df["Symbol"] == sym]
                         if not row.empty:
                             prices = row[non_nan_cols].astype(float)
-                            # --- FIX for ambiguous truth value error ---
                             if len(prices.columns) == 0 or pd.isna(prices.iloc[0,0]) or prices.iloc[0,0] == 0:
                                 norm_prices = prices.iloc[0]
                             else:
