@@ -132,11 +132,18 @@ if uploaded_file:
 
                     fig = go.Figure()
                     for symbol in normed.index:
+                        try:
+                            y0 = normed.loc[symbol].iloc[0]
+                            y1 = normed.loc[symbol].iloc[-1]
+                            pct = ((y1 - y0) / y0) * 100
+                            label = f"{symbol} ({pct:+.2f}%)"
+                        except Exception:
+                            label = symbol
                         fig.add_trace(go.Scatter(
                             x=all_labels,
                             y=normed.loc[symbol],
                             mode="lines+markers",
-                            name=symbol
+                            name=label
                         ))
                     fig.update_layout(
                         title="Normalized Price Performance (Start = 100)",
