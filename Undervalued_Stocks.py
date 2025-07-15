@@ -176,7 +176,8 @@ if uploaded_file is not None:
                 filtered_df['P/E'].fillna(0) / pe_ratio_threshold +
                 filtered_df['PEG'].fillna(0) / peg_ratio_threshold +
                 filtered_df['Debt/Equity'].fillna(0) / debt_to_equity_threshold +
-                (current_ratio_threshold / filtered_df['CurrentRatio'].fillna(np.inf)) / 4
+                (current_ratio_threshold / filtered_df['CurrentRatio'].fillna(np.inf))
+            ) / 4
             
             # Sort by score
             filtered_df = filtered_df.sort_values(by='Score', ascending=True)
