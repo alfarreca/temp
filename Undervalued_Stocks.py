@@ -1,108 +1,158 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import numpy as np
-import plotly.express as px
 
-# App configuration
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Undervalued Stock Screener", layout="wide")
+
 st.title("📊 Undervalued Stock Screener")
-st.subheader("Warren Buffett-inspired Value Investing Strategy")
-st.write("""
-This app helps identify potentially undervalued stocks based on fundamental analysis metrics.
-You can analyze either a single stock or upload a file with multiple tickers.
+st.markdown("""
+**Warren Buffett-inspired Value Investing Strategy**
+
+This app helps identify potentially undervalued stocks based on fundamental analysis metrics. You can analyze either a single stock or upload a file with multiple tickers.
 """)
 
-# Valuation parameters
-st.sidebar.header("Valuation Parameters")
-with st.sidebar.expander("Adjust valuation thresholds"):
-    pe_ratio_threshold = st.slider("Max P/E Ratio", 5, 50, 25)
-    peg_ratio_threshold = st.slider("Max PEG Ratio", 0.1, 3.0, 1.5, step=0.1, format="%.1f")
-    debt_to_equity_threshold = st.slider("Max Debt-to-Equity", 0.1, 5.0, 2.0, step=0.1, format="%.1f")
-    current_ratio_threshold = st.slider("Min Current Ratio", 0.5, 3.0, 1.0, step=0.1, format="%.1f")
-    roa_threshold = st.slider("Min Return on Assets (%)", 0, 20, 5)
+# ------------------------------
+# Core Functions
+# ------------------------------
 
 def get_stock_data(ticker, exchange=""):
     try:
-        exchange_map = {
-            "TORONTO": ".TO", "LONDON": ".L", "EURONEXT": ".PA", "FRANKFURT": ".DE",
-            "HONG KONG": ".HK", "SHANGHAI": ".SS"
-        }
-        full_ticker = ticker + exchange_map.get(exchange.upper(), "")
+        if exchange:
+            full_ticker = f"{ticker}.{exchange}"
+        else:
+            full_ticker = ticker
+
         stock = yf.Ticker(full_ticker)
-        hist = stock.history(period="1d")
-
-        if hist.empty:
-            return None
-
-        current_price = hist['Close'].iloc[-1]
         info = stock.info
 
-        # Manual P/E fallback
-        eps = info.get('trailingEps', np.nan)
-        pe_ratio = info.get('trailingPE', np.nan)
-        if (not pe_ratio or np.isnan(pe_ratio)) and eps and eps != 0:
-            pe_ratio = current_price / eps
-        if pe_ratio is not None and pe_ratio < 0:
-            pe_ratio = None
+        # Manual calculations
+        current_price = info.get("currentPrice")
+        forward_pe = info.get("forwardPE")
+        earnings_growth = info.get("earningsQuarterlyGrowth")
+        dividend_yield = (info.get("dividendRate") or 0) / current_price * 100 if current_price else None
 
-        # Manual Forward P/E
-        forward_eps = info.get('forwardEps', np.nan)
-        forward_pe = info.get('forwardPE', np.nan)
-        if (not forward_pe or np.isnan(forward_pe)) and forward_eps and forward_eps != 0:
-            forward_pe = current_price / forward_eps
-        if forward_pe is not None and forward_pe < 0:
-            forward_pe = None
+        # Calculate P/E if not present
+        trailing_eps = info.get("trailingEps")
+        pe_ratio = current_price / trailing_eps if trailing_eps else None
 
-        # Manually calculate PEG ratio
-        growth = info.get('earningsGrowth', np.nan)
-        peg_ratio = None
-        if pe_ratio is not None and pe_ratio > 0 and growth is not None and growth > 0:
-            peg_ratio = pe_ratio / (growth * 100)
-
-        # Manually calculate Dividend Yield
-        dividend = info.get('dividendRate', np.nan)
-        div_yield = None
-        if dividend and dividend > 0 and current_price > 0:
-            div_yield = (dividend / current_price) * 100
-
-        # Manually calculate Debt/Equity if missing
-        de_ratio = info.get("debtToEquity")
-        if de_ratio is None:
+        # Calculate PEG if forward PE and growth available
+        if forward_pe and earnings_growth:
             try:
-                bs = stock.balance_sheet
-                total_liab = bs.loc["Total Liab"][0]
-                equity = bs.loc["Total Stockholder Equity"][0]
-                if equity != 0:
-                    de_ratio = total_liab / equity
-                else:
-                    de_ratio = None
-            except Exception:
-                de_ratio = None
+                peg_ratio = forward_pe / (earnings_growth * 100)
+            except ZeroDivisionError:
+                peg_ratio = None
+        else:
+            peg_ratio = None
 
-        metrics = {
-            'Symbol': ticker,
-            'Exchange': exchange,
-            'CurrentPrice': current_price,
-            'P/E': pe_ratio,
-            'Forward P/E': forward_pe,
-            'PEG': peg_ratio,
-            'Debt/Equity': round(de_ratio, 3) if de_ratio is not None else None,
-            'CurrentRatio': info.get('currentRatio', np.nan),
-            'ROA': info.get('returnOnAssets', np.nan) * 100 if info.get('returnOnAssets') else np.nan,
-            'ROE': info.get('returnOnEquity', np.nan) * 100 if info.get('returnOnEquity') else np.nan,
-            'ProfitMargin': info.get('profitMargins', np.nan) * 100 if info.get('profitMargins') else np.nan,
-            'Price/Book': current_price / info.get('bookValue', np.nan) if info.get('bookValue') else np.nan,
-            'DividendYield': div_yield,
-            '52WeekLow': info.get('fiftyTwoWeekLow', np.nan),
-            '52WeekHigh': info.get('fiftyTwoWeekHigh', np.nan),
-            'DiscountFromHigh': (info.get('fiftyTwoWeekHigh', np.nan) - current_price) / info.get('fiftyTwoWeekHigh', 1) * 100 
-                                if info.get('fiftyTwoWeekHigh') else np.nan,
-            'Beta': info.get('beta', np.nan),
-            'MarketCap': info.get('marketCap', np.nan)
+        # Calculate Debt/Equity manually if needed
+        balance_sheet = stock.balance_sheet
+        if not balance_sheet.empty:
+            try:
+                total_liabilities = balance_sheet.loc["Total Liab"].iloc[0]
+                total_equity = balance_sheet.loc["Total Stockholder Equity"].iloc[0]
+                debt_to_equity = total_liabilities / total_equity if total_equity else None
+            except:
+                debt_to_equity = info.get("debtToEquity")
+        else:
+            debt_to_equity = info.get("debtToEquity")
+
+        return {
+            "Symbol": ticker,
+            "Exchange": exchange,
+            "CurrentPrice": current_price,
+            "P/E": pe_ratio,
+            "Forward P/E": forward_pe,
+            "PEG": peg_ratio,
+            "Debt/Equity": debt_to_equity,
+            "CurrentRatio": info.get("currentRatio"),
+            "ROA": info.get("returnOnAssets", 0) * 100 if info.get("returnOnAssets") else None,
+            "ROE": info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") else None,
+            "ProfitMargin": info.get("profitMargins", 0) * 100 if info.get("profitMargins") else None,
+            "Price/Book": info.get("priceToBook"),
+            "DividendYield": dividend_yield,
+            "52WeekLow": info.get("fiftyTwoWeekLow"),
+            "52WeekHigh": info.get("fiftyTwoWeekHigh"),
+            "DiscountFromHigh": (1 - current_price / info.get("fiftyTwoWeekHigh")) * 100 if current_price and info.get("fiftyTwoWeekHigh") else None,
+            "Beta": info.get("beta"),
+            "MarketCap": info.get("marketCap"),
         }
-        return metrics
-
     except Exception as e:
-        st.warning(f"Error fetching data for {ticker}: {str(e)}")
-        return None
+        st.warning(f"⚠️ Failed to fetch data for {ticker}: {e}")
+        return {}
+
+def analyze_stocks(df):
+    results = []
+    for _, row in df.iterrows():
+        data = get_stock_data(row['Symbol'], row.get("Exchange", ""))
+        if data:
+            results.append(data)
+    results_df = pd.DataFrame(results)
+
+    # Filter based on sliders
+    filtered_df = results_df[
+        (results_df["P/E"] <= st.session_state.max_pe) &
+        (results_df["PEG"] <= st.session_state.max_peg) &
+        (results_df["Debt/Equity"] <= st.session_state.max_de) &
+        (results_df["CurrentRatio"] >= st.session_state.min_cr) &
+        (results_df["ROA"] >= st.session_state.min_roa)
+    ]
+
+    return filtered_df, results_df
+
+def display_results(df):
+    if df.empty:
+        st.warning("No data matched your filters or ticker was invalid.")
+    else:
+        st.subheader("Raw Stock Data from Yahoo Finance")
+        st.dataframe(df)
+        st.success(f"✅ Finished analyzing {len(df)} stock(s).")
+
+# ------------------------------
+# UI Controls
+# ------------------------------
+
+st.sidebar.header("Analysis Options")
+analysis_type = st.sidebar.radio("Select analysis type:", ["Single Stock Analysis", "Multiple Stocks Analysis"])
+
+if "max_pe" not in st.session_state:
+    st.session_state.max_pe = 25
+    st.session_state.max_peg = 1.5
+    st.session_state.max_de = 2.0
+    st.session_state.min_cr = 1.0
+    st.session_state.min_roa = 5
+
+with st.sidebar.expander("Adjust valuation thresholds"):
+    st.session_state.max_pe = st.slider("Max P/E Ratio", 5, 50, st.session_state.max_pe)
+    st.session_state.max_peg = st.slider("Max PEG Ratio", 0.1, 3.0, st.session_state.max_peg)
+    st.session_state.max_de = st.slider("Max Debt-to-Equity", 0.1, 5.0, st.session_state.max_de)
+    st.session_state.min_cr = st.slider("Min Current Ratio", 0.5, 3.0, st.session_state.min_cr)
+    st.session_state.min_roa = st.slider("Min Return on Assets (%)", 0, 20, st.session_state.min_roa)
+
+# ------------------------------
+# Analysis Section
+# ------------------------------
+
+if analysis_type == "Single Stock Analysis":
+    st.sidebar.subheader("Single Stock Parameters")
+    symbol = st.sidebar.text_input("Enter stock ticker:")
+    exchange = st.sidebar.selectbox("Select exchange (if international):", ["", "TO", "L", "AX", "HK"], index=0)
+
+    if st.sidebar.button("Analyze Single Stock"):
+        st.info(f"Processing {symbol} (1/1)...")
+        df = pd.DataFrame([{"Symbol": symbol, "Exchange": exchange}])
+        _, results_df = analyze_stocks(df)
+        display_results(results_df)
+
+elif analysis_type == "Multiple Stocks Analysis":
+    st.sidebar.subheader("Upload Stock List")
+    uploaded_file = st.sidebar.file_uploader("Upload CSV with 'Symbol' column", type="csv")
+
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.info(f"Processing {len(df)} tickers...")
+        filtered_df, results_df = analyze_stocks(df)
+
+        display_results(results_df)
+
+        st.download_button("📥 Download Raw Data", results_df.to_csv(index=False), file_name="stock_data.csv")
+        st.download_button("📉 Download Filtered Results", filtered_df.to_csv(index=False), file_name="filtered_data.csv")
