@@ -161,7 +161,7 @@ def analyze_stocks(tickers_df):
             (results_df['ROA'].fillna(0) >= roa_threshold)
         ].copy()
         
-        # Enhanced scoring
+        # Enhanced scoring with fixed calculation
         weights = {
             'P/E': 0.3,
             'PEG': 0.25,
@@ -171,7 +171,7 @@ def analyze_stocks(tickers_df):
         }
         
         filtered_df['Score'] = (
-            (filtered_df['P/E'].fillna(0) / pe_ratio_threshold * weights['P/E'] +
+            (filtered_df['P/E'].fillna(0) / pe_ratio_threshold * weights['P/E']) +
             (filtered_df['PEG'].fillna(0) / peg_ratio_threshold * weights['PEG']) +
             (filtered_df['Debt/Equity'].fillna(0) / debt_to_equity_threshold * weights['Debt/Equity']) +
             (current_ratio_threshold / filtered_df['CurrentRatio'].fillna(np.inf) * weights['CurrentRatio']) +
