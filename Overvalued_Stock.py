@@ -150,10 +150,10 @@ if uploaded_file is not None:
             # Calculate composite overvaluation score (higher is worse)
             filtered_df['OvervaluationScore'] = (
                 (filtered_df['P/E'].fillna(0) / pe_ratio_threshold +
-                (filtered_df['PEG'].fillna(0) / peg_ratio_threshold) +
-                (filtered_df['Price/Sales'].fillna(0) / price_to_sales_threshold +
-                (filtered_df['Price/Book'].fillna(0) / price_to_book_threshold) +
-                (filtered_df['ShortInterest'].fillna(0) / short_interest_threshold)
+                filtered_df['PEG'].fillna(0) / peg_ratio_threshold +
+                filtered_df['Price/Sales'].fillna(0) / price_to_sales_threshold +
+                filtered_df['Price/Book'].fillna(0) / price_to_book_threshold +
+                filtered_df['ShortInterest'].fillna(0) / short_interest_threshold)
             ) / 5
             
             # Sort by score
