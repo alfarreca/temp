@@ -66,6 +66,20 @@ def get_stock_data(ticker, exchange=""):
         if dividend and dividend > 0 and current_price > 0:
             div_yield = (dividend / current_price) * 100
 
+        # Manually calculate Debt/Equity if missing
+        de_ratio = info.get("debtToEquity")
+        if de_ratio is None:
+            try:
+                bs = stock.balance_sheet
+                total_liab = bs.loc["Total Liab"][0]
+                equity = bs.loc["Total Stockholder Equity"][0]
+                if equity != 0:
+                    de_ratio = total_liab / equity
+                else:
+                    de_ratio = None
+            except Exception:
+                de_ratio = None
+
         metrics = {
             'Symbol': ticker,
             'Exchange': exchange,
@@ -73,7 +87,7 @@ def get_stock_data(ticker, exchange=""):
             'P/E': pe_ratio,
             'Forward P/E': forward_pe,
             'PEG': peg_ratio,
-            'Debt/Equity': info.get('debtToEquity', np.nan),
+            'Debt/Equity': round(de_ratio, 3) if de_ratio is not None else None,
             'CurrentRatio': info.get('currentRatio', np.nan),
             'ROA': info.get('returnOnAssets', np.nan) * 100 if info.get('returnOnAssets') else np.nan,
             'ROE': info.get('returnOnEquity', np.nan) * 100 if info.get('returnOnEquity') else np.nan,
@@ -92,106 +106,3 @@ def get_stock_data(ticker, exchange=""):
     except Exception as e:
         st.warning(f"Error fetching data for {ticker}: {str(e)}")
         return None
-
-def analyze_stocks(tickers_df):
-    st.write("## Analyzing Stocks...")
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    results = []
-    total_stocks = len(tickers_df)
-
-    for i, row in tickers_df.iterrows():
-        ticker = row['Symbol']
-        exchange = row.get('Exchange', '')
-        status_text.text(f"Processing {ticker} ({i+1}/{total_stocks})...")
-        progress_bar.progress((i+1)/total_stocks)
-        metrics = get_stock_data(ticker, exchange)
-        if metrics:
-            results.append(metrics)
-
-    if not results:
-        st.error("No valid stock data could be retrieved from Yahoo Finance.")
-        return None, None
-
-    results_df = pd.DataFrame(results)
-
-    filtered_df = results_df[
-        (results_df['P/E'].fillna(np.inf) <= pe_ratio_threshold) &
-        (results_df['PEG'].fillna(np.inf) <= peg_ratio_threshold) &
-        (results_df['Debt/Equity'].fillna(np.inf) <= debt_to_equity_threshold) &
-        (results_df['CurrentRatio'].fillna(0) >= current_ratio_threshold) &
-        (results_df['ROA'].fillna(0) >= roa_threshold)
-    ].copy()
-
-    weights = {'P/E': 0.3, 'PEG': 0.25, 'Debt/Equity': 0.2, 'CurrentRatio': 0.15, 'ROA': 0.1}
-
-    filtered_df['Score'] = (
-        (filtered_df['P/E'].fillna(0) / pe_ratio_threshold * weights['P/E']) +
-        (filtered_df['PEG'].fillna(0) / peg_ratio_threshold * weights['PEG']) +
-        (filtered_df['Debt/Equity'].fillna(0) / debt_to_equity_threshold * weights['Debt/Equity']) +
-        (current_ratio_threshold / filtered_df['CurrentRatio'].fillna(np.inf) * weights['CurrentRatio']) +
-        (roa_threshold / filtered_df['ROA'].fillna(np.inf) * weights['ROA'])
-    )
-
-    filtered_df = filtered_df.sort_values(by='Score', ascending=True)
-    return filtered_df, results_df
-
-def display_results(filtered_df, results_df, single_stock=False):
-    st.write("---")
-    st.write("## Raw Stock Data from Yahoo Finance")
-    if results_df is not None and not results_df.empty:
-        st.dataframe(results_df)
-    if filtered_df is not None and not filtered_df.empty:
-        st.write("---")
-        st.success(f"Found {len(filtered_df)} potentially undervalued {'stock' if single_stock else 'stocks'}")
-        st.write("## Filtered Results")
-        st.dataframe(filtered_df)
-
-# Sidebar inputs
-st.sidebar.header("Analysis Options")
-analysis_type = st.sidebar.radio("Select analysis type:", 
-                                ["Single Stock Analysis", "Multiple Stocks Analysis"])
-
-# Single stock analysis
-if analysis_type == "Single Stock Analysis":
-    st.sidebar.header("Single Stock Parameters")
-    single_ticker = st.sidebar.text_input("Enter stock ticker:", help="Example: AAPL for Apple, MSFT for Microsoft")
-    exchange = st.sidebar.selectbox("Select exchange (if international):",
-                                    ["", "NYSE/NASDAQ", "TORONTO", "LONDON", "EURONEXT", "FRANKFURT", "HONG KONG", "SHANGHAI"])
-
-    if st.sidebar.button("Analyze Single Stock"):
-        if single_ticker:
-            df = pd.DataFrame({'Symbol': [single_ticker], 'Exchange': [exchange]})
-            filtered_df, results_df = analyze_stocks(df)
-            if results_df is not None:
-                display_results(filtered_df, results_df, single_stock=True)
-        else:
-            st.warning("Please enter a stock ticker")
-
-# Multiple stocks analysis
-else:
-    st.sidebar.header("File Upload")
-    uploaded_file = st.sidebar.file_uploader("Upload Excel file with stock tickers", type=["xlsx"],
-                                             help="File should contain 'Symbol' column (optional: 'Exchange')")
-    if uploaded_file is not None:
-        try:
-            df = pd.read_excel(uploaded_file)
-            if 'Symbol' not in df.columns:
-                st.error("File must contain 'Symbol' column")
-                st.stop()
-            if 'Exchange' not in df.columns:
-                df['Exchange'] = ''
-            if st.button("Analyze Stocks"):
-                filtered_df, results_df = analyze_stocks(df)
-                if results_df is not None:
-                    display_results(filtered_df, results_df)
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-    else:
-        st.info("""
-        To begin analysis:
-        1. Select analysis type (single stock or file upload)
-        2. Enter stock ticker or upload file
-        3. Adjust valuation parameters as needed
-        4. Click analyze button
-        """)
