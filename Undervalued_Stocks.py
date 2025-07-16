@@ -140,7 +140,7 @@ def analyze_stocks(tickers_df):
                 results.append(metrics)
         
         if not results:
-            st.error("No valid stock data could be retrieved. Please check your tickers and try again.")
+            st.error("No valid stock data could be retrieved from Yahoo Finance. Please check your tickers and try again.")
             return None, None
             
         results_df = pd.DataFrame(results)
@@ -177,13 +177,10 @@ def analyze_stocks(tickers_df):
         return None, None
 
 def display_results(filtered_df, results_df, single_stock=False):
-    if len(filtered_df) > 0:
-        st.success(f"Found {len(filtered_df)} potentially undervalued {'stock' if single_stock else 'stocks'}")
-        
-        # Raw Data Section - Always Visible
-        st.write("---")
-        st.write("## Complete Stock Data")
-        st.info("This table shows all analyzed stocks before filtering. Scroll to see all metrics.")
+    # Always show raw data first
+    st.write("---")
+    st.write("## Raw Stock Data from Yahoo Finance")
+    if results_df is not None and not results_df.empty:
         st.dataframe(
             results_df.style.format({
                 'CurrentPrice': '${:,.2f}',
@@ -195,12 +192,23 @@ def display_results(filtered_df, results_df, single_stock=False):
             use_container_width=True
         )
         
-        # Filtered Results Section
+        # Download raw data button
+        st.download_button(
+            label="Download Raw Data",
+            data=results_df.to_csv(index=False),
+            file_name="raw_stock_data.csv",
+            mime="text/csv"
+        )
+    else:
+        st.warning("No stock data could be retrieved from Yahoo Finance")
+    
+    # Then show filtered results if any
+    if filtered_df is not None and len(filtered_df) > 0:
         st.write("---")
+        st.success(f"Found {len(filtered_df)} potentially undervalued {'stock' if single_stock else 'stocks'}")
         st.write("## Filtered Results")
         
         if single_stock:
-            st.write("### Detailed Analysis")
             detailed_metrics = filtered_df.iloc[0].to_dict()
             
             col1, col2 = st.columns(2)
@@ -259,24 +267,23 @@ def display_results(filtered_df, results_df, single_stock=False):
                 fig = px.box(results_df, y='Price/Book', title='Price-to-Book Distribution', points="all")
                 st.plotly_chart(fig, use_container_width=True)
             
-            st.write("---")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    label="Download Filtered Results",
-                    data=filtered_df.to_csv(index=False),
-                    file_name="undervalued_stocks.csv",
-                    mime="text/csv"
-                )
-            with col2:
-                st.download_button(
-                    label="Download Complete Data",
-                    data=results_df.to_csv(index=False),
-                    file_name="all_stock_data.csv",
-                    mime="text/csv"
-                )
+            # Download filtered data button
+            st.download_button(
+                label="Download Filtered Results",
+                data=filtered_df.to_csv(index=False),
+                file_name="undervalued_stocks.csv",
+                mime="text/csv"
+            )
     else:
-        st.warning("No stocks met all the valuation criteria. Try adjusting your filters.")
+        if results_df is not None and not results_df.empty:
+            st.write("---")
+            st.warning("""
+            No stocks met all the valuation criteria. Try:
+            - Increasing P/E or PEG thresholds
+            - Decreasing Debt-to-Equity requirement  
+            - Lowering ROA requirement
+            - Review the raw data above to see why stocks were filtered out
+            """)
 
 # Main logic
 if analysis_type == "Single Stock Analysis" and st.session_state.analyze_clicked:
@@ -284,7 +291,7 @@ if analysis_type == "Single Stock Analysis" and st.session_state.analyze_clicked
         df = pd.DataFrame({'Symbol': [single_ticker], 'Exchange': [exchange]})
         filtered_df, results_df = analyze_stocks(df)
         
-        if filtered_df is not None:
+        if results_df is not None:
             display_results(filtered_df, results_df, single_stock=True)
         st.session_state.analyze_clicked = False
     else:
@@ -302,7 +309,7 @@ elif analysis_type == "Multiple Stocks Analysis" and uploaded_file is not None:
             
         if st.button("Analyze Stocks"):
             filtered_df, results_df = analyze_stocks(df)
-            if filtered_df is not None:
+            if results_df is not None:
                 display_results(filtered_df, results_df)
                 
     except Exception as e:
