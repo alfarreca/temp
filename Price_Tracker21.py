@@ -1,8 +1,4 @@
-# Repackage the full script with the fixed fetch_friday_closes function
-
-script_path = "/mnt/data/Price_Tracker21_FIXED.py"
-
-fixed_script = """import streamlit as st
+import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -30,16 +26,29 @@ def fetch_friday_closes(symbol, weeks):
     data = yf.download(symbol, start=first_monday, end=last_friday + timedelta(days=1), interval="1d", progress=False)
     if data.empty or "Close" not in data.columns:
         return None
+
     closes = []
     for monday, friday in weeks:
         week_data = data.loc[(data.index >= pd.Timestamp(monday)) & (data.index <= pd.Timestamp(friday))]
         friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]
+
         if not friday_close.empty and pd.api.types.is_numeric_dtype(friday_close):
-            closes.append(float(round(friday_close.dropna().iloc[-1], 3)))
-        elif not week_data.empty:
-            closes.append(float(round(week_data["Close"].dropna().iloc[-1], 3)))
+            try:
+                closes.append(float(round(friday_close.dropna().iloc[-1], 3)))
+            except:
+                closes.append(np.nan)
+        elif not week_data.empty and "Close" in week_data.columns:
+            non_nan_closes = week_data["Close"].dropna()
+            if not non_nan_closes.empty:
+                try:
+                    closes.append(float(round(non_nan_closes.iloc[-1], 3)))
+                except:
+                    closes.append(np.nan)
+            else:
+                closes.append(np.nan)
         else:
             closes.append(np.nan)
+
     return closes if sum(np.isnan(closes)) == 0 else None
 
 def fetch_current_week_close(symbol, current_week_start):
@@ -256,9 +265,3 @@ if uploaded_file:
 
 else:
     st.info("Please upload an Excel file with at least 'Symbol' and 'Exchange' columns.")
-"""
-
-with open(script_path, "w") as f:
-    f.write(fixed_script)
-
-script_path
