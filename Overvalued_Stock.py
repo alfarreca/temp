@@ -9,11 +9,17 @@ st.title("📈 Overvalued Stock Screener")
 st.subheader("Identifying Potentially Overpriced Stocks")
 st.write("""
 This app helps identify potentially overvalued stocks based on fundamental analysis metrics.
-Upload your Excel file with stock symbols to get started.
+You can either upload an Excel file with multiple stocks or analyze a single ticker.
 """)
 
 # Sidebar for user inputs
 st.sidebar.header("Overvaluation Parameters")
+
+# Single ticker input
+single_ticker = st.sidebar.text_input(
+    "Or enter a single stock ticker:",
+    help="Example: AAPL for Apple, MSFT for Microsoft"
+)
 
 # File upload
 uploaded_file = st.sidebar.file_uploader(
@@ -99,6 +105,63 @@ def get_stock_data(ticker, exchange):
         st.warning(f"Error fetching data for {ticker}: {str(e)}")
         return None
 
+def analyze_stocks(df):
+    try:
+        st.write("## Analyzing Stocks...")
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        results = []
+        total_stocks = len(df)
+        
+        for i, row in df.iterrows():
+            ticker = row['Symbol']
+            exchange = row.get('Exchange', '')
+            
+            status_text.text(f"Processing {ticker} ({i+1}/{total_stocks})...")
+            progress_bar.progress((i+1)/total_stocks)
+            
+            metrics = get_stock_data(ticker, exchange)
+            if metrics:
+                results.append(metrics)
+        
+        if not results:
+            st.error("No valid stock data could be retrieved. Please check your tickers and try again.")
+            return None
+            
+        # Create results dataframe
+        results_df = pd.DataFrame(results)
+        
+        # Apply overvaluation filters
+        filtered_df = results_df[
+            (results_df['P/E'] >= pe_ratio_threshold) &
+            (results_df['PEG'] >= peg_ratio_threshold) &
+            (results_df['Price/Sales'] >= price_to_sales_threshold) &
+            (results_df['Price/Book'] >= price_to_book_threshold) &
+            (results_df['ShortInterest'] >= short_interest_threshold)
+        ].copy()
+        
+        # Calculate composite overvaluation score (higher is worse)
+        filtered_df['OvervaluationScore'] = (
+            (filtered_df['P/E'].fillna(0) / pe_ratio_threshold +
+            filtered_df['PEG'].fillna(0) / peg_ratio_threshold +
+            filtered_df['Price/Sales'].fillna(0) / price_to_sales_threshold +
+            filtered_df['Price/Book'].fillna(0) / price_to_book_threshold +
+            filtered_df['ShortInterest'].fillna(0) / short_interest_threshold)
+        ) / 5
+        
+        # Sort by score
+        filtered_df = filtered_df.sort_values(by='OvervaluationScore', ascending=False)
+        
+        st.warning(f"Found {len(filtered_df)} potentially overvalued stocks out of {len(results_df)} analyzed")
+        
+        return filtered_df, results_df
+        
+    except Exception as e:
+        st.error(f"Error processing stocks: {str(e)}")
+        return None, None
+
 # Main app logic
 if uploaded_file is not None:
     try:
@@ -112,57 +175,9 @@ if uploaded_file is not None:
             df['Exchange'] = ''
             
         if st.button("Analyze Stocks"):
-            st.write("## Analyzing Stocks...")
+            filtered_df, results_df = analyze_stocks(df)
             
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            results = []
-            total_stocks = len(df)
-            
-            for i, row in df.iterrows():
-                ticker = row['Symbol']
-                exchange = row['Exchange']
-                
-                status_text.text(f"Processing {ticker} ({i+1}/{total_stocks})...")
-                progress_bar.progress((i+1)/total_stocks)
-                
-                metrics = get_stock_data(ticker, exchange)
-                if metrics:
-                    results.append(metrics)
-            
-            if not results:
-                st.error("No valid stock data could be retrieved. Please check your tickers and try again.")
-                st.stop()
-                
-            # Create results dataframe
-            results_df = pd.DataFrame(results)
-            
-            # Apply overvaluation filters
-            filtered_df = results_df[
-                (results_df['P/E'] >= pe_ratio_threshold) &
-                (results_df['PEG'] >= peg_ratio_threshold) &
-                (results_df['Price/Sales'] >= price_to_sales_threshold) &
-                (results_df['Price/Book'] >= price_to_book_threshold) &
-                (results_df['ShortInterest'] >= short_interest_threshold)
-            ].copy()
-            
-            # Calculate composite overvaluation score (higher is worse)
-            filtered_df['OvervaluationScore'] = (
-                (filtered_df['P/E'].fillna(0) / pe_ratio_threshold +
-                filtered_df['PEG'].fillna(0) / peg_ratio_threshold +
-                filtered_df['Price/Sales'].fillna(0) / price_to_sales_threshold +
-                filtered_df['Price/Book'].fillna(0) / price_to_book_threshold +
-                filtered_df['ShortInterest'].fillna(0) / short_interest_threshold)
-            ) / 5
-            
-            # Sort by score
-            filtered_df = filtered_df.sort_values(by='OvervaluationScore', ascending=False)
-            
-            st.warning(f"Found {len(filtered_df)} potentially overvalued stocks out of {len(results_df)} analyzed")
-            
-            # Show results
-            if len(filtered_df) > 0:
+            if filtered_df is not None and len(filtered_df) > 0:
                 st.write("## Overvalued Stock Candidates")
                 
                 # Format display
@@ -218,7 +233,7 @@ if uploaded_file is not None:
                     file_name="overvalued_stocks.csv",
                     mime="text/csv"
                 )
-            else:
+            elif filtered_df is not None:
                 st.info("""
                 No stocks met all the overvaluation criteria. Try adjusting the parameters:
                 - Decrease P/E or PEG thresholds
@@ -229,13 +244,53 @@ if uploaded_file is not None:
                 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
+elif single_ticker:
+    if st.button("Analyze Single Ticker"):
+        # Create a dataframe with the single ticker
+        df = pd.DataFrame({'Symbol': [single_ticker], 'Exchange': ''})
+        filtered_df, results_df = analyze_stocks(df)
+        
+        if filtered_df is not None:
+            if len(filtered_df) > 0:
+                st.write("## Analysis Results")
+                
+                # Format display for single stock
+                display_df = filtered_df[[
+                    'Symbol', 'CurrentPrice', 'P/E', 'PEG', 'Price/Sales', 'Price/Book',
+                    'ShortInterest', 'RevenueGrowth', 'ProfitMargin', 'PremiumToHigh', 'OvervaluationScore'
+                ]].copy()
+                
+                st.dataframe(
+                    display_df.style.format({
+                        'CurrentPrice': '${:.2f}',
+                        'P/E': '{:.1f}',
+                        'PEG': '{:.1f}',
+                        'Price/Sales': '{:.1f}',
+                        'Price/Book': '{:.1f}',
+                        'ShortInterest': '{:.1f}%',
+                        'RevenueGrowth': '{:.1f}%',
+                        'ProfitMargin': '{:.1f}%',
+                        'PremiumToHigh': '{:.1f}%',
+                        'OvervaluationScore': '{:.2f}'
+                    })
+                )
+                
+                # Show all metrics for the single stock
+                st.write("### Detailed Metrics")
+                detailed_df = results_df.drop(columns=['Exchange']).T
+                detailed_df.columns = ['Value']
+                st.table(detailed_df.style.format({
+                    'Value': lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) else x
+                }))
+            else:
+                st.success(f"{single_ticker} does not appear to be overvalued based on the current criteria")
 else:
     st.info("""
     To begin analysis:
-    1. Prepare an Excel file with stock symbols
-    2. Upload using the file uploader in the sidebar
+    1. Either upload an Excel file with stock symbols OR
+    2. Enter a single stock ticker in the sidebar
     3. Adjust overvaluation parameters as needed
-    4. Click 'Analyze Stocks' button
+    4. Click 'Analyze' button
     """)
 
 # Educational content
