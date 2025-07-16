@@ -190,6 +190,20 @@ def display_results(filtered_df, results_df, single_stock=False):
     if len(filtered_df) > 0:
         st.success(f"Found {len(filtered_df)} potentially undervalued {'stock' if single_stock else 'stocks'}")
         
+        # Display raw data table in an expandable section
+        with st.expander("📋 View Raw Data for All Stocks"):
+            st.write("### Raw Stock Data")
+            st.dataframe(
+                results_df.style.format({
+                    'CurrentPrice': '${:,.2f}',
+                    'MarketCap': '${:,.0f}',
+                    **{col: '{:.1f}' for col in ['P/E', 'PEG', 'Debt/Equity', 'CurrentRatio', 'Price/Book']},
+                    **{col: '{:.1f}%' for col in ['ROA', 'ROE', 'ProfitMargin', 'DividendYield', 'DiscountFromHigh']}
+                }),
+                height=400,
+                use_container_width=True
+            )
+        
         # Enhanced display for single stock
         if single_stock:
             st.write("## Detailed Analysis")
@@ -264,13 +278,22 @@ def display_results(filtered_df, results_df, single_stock=False):
                 )
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Download button
-            st.download_button(
-                label="Download Results as CSV",
-                data=filtered_df.to_csv(index=False),
-                file_name="undervalued_stocks.csv",
-                mime="text/csv"
-            )
+            # Download buttons for both raw and filtered data
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="Download Filtered Results as CSV",
+                    data=filtered_df.to_csv(index=False),
+                    file_name="undervalued_stocks.csv",
+                    mime="text/csv"
+                )
+            with col2:
+                st.download_button(
+                    label="Download Raw Data as CSV",
+                    data=results_df.to_csv(index=False),
+                    file_name="raw_stock_data.csv",
+                    mime="text/csv"
+                )
     else:
         st.warning("""
         No stocks met all the valuation criteria. Try:
