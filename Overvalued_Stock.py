@@ -16,53 +16,109 @@ You can either upload an Excel file with multiple stocks or analyze a single tic
 if 'analyze_clicked' not in st.session_state:
     st.session_state.analyze_clicked = False
 
-# Sidebar for user inputs
-st.sidebar.header("Overvaluation Parameters")
+# Function definitions moved to the top
+def display_results(filtered_df, results_df):
+    if len(filtered_df) > 0:
+        st.warning(f"Found {len(filtered_df)} potentially overvalued stocks out of {len(results_df)} analyzed")
+        st.write("## Overvalued Stock Candidates")
+        
+        # Format display
+        display_df = filtered_df[[
+            'Symbol', 'Exchange', 'CurrentPrice', 'P/E', 'PEG', 'Price/Sales', 'Price/Book',
+            'ShortInterest', 'RevenueGrowth', 'ProfitMargin', 'PremiumToHigh', 'OvervaluationScore'
+        ]].copy()
+        
+        st.dataframe(
+            display_df.style.format({
+                'CurrentPrice': '${:.2f}',
+                'P/E': '{:.1f}',
+                'PEG': '{:.1f}',
+                'Price/Sales': '{:.1f}',
+                'Price/Book': '{:.1f}',
+                'ShortInterest': '{:.1f}%',
+                'RevenueGrowth': '{:.1f}%',
+                'ProfitMargin': '{:.1f}%',
+                'PremiumToHigh': '{:.1f}%',
+                'OvervaluationScore': '{:.2f}'
+            }),
+            height=400
+        )
+        
+        # Visualizations
+        st.write("## Overvaluation Metrics Distribution")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            fig = px.box(
+                results_df, 
+                y='P/E',
+                title='P/E Ratio Distribution',
+                points="all"
+            )
+            fig.add_hline(y=pe_ratio_threshold, line_dash="dash", line_color="red")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            fig = px.box(
+                results_df, 
+                y='Price/Sales',
+                title='Price-to-Sales Distribution',
+                points="all"
+            )
+            fig.add_hline(y=price_to_sales_threshold, line_dash="dash", line_color="red")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Download button
+        st.download_button(
+            label="Download Results as CSV",
+            data=filtered_df.to_csv(index=False),
+            file_name="overvalued_stocks.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("""
+        No stocks met all the overvaluation criteria. Try adjusting the parameters:
+        - Decrease P/E or PEG thresholds
+        - Lower Price-to-Sales requirement
+        - Reduce Price-to-Book requirement
+        - Decrease Short Interest threshold
+        """)
 
-# Single ticker input
-single_ticker = st.sidebar.text_input(
-    "Enter a single stock ticker:",
-    help="Example: AAPL for Apple, MSFT for Microsoft"
-)
-
-# File upload
-uploaded_file = st.sidebar.file_uploader(
-    "Or upload Excel file with multiple tickers", 
-    type=["xlsx"],
-    help="File should contain 'Symbol' and 'Exchange' columns"
-)
-
-# Overvaluation parameters
-pe_ratio_threshold = st.sidebar.slider(
-    "Min P/E Ratio to Consider Overvalued", 
-    min_value=20, max_value=100, value=30, step=5
-)
-
-peg_ratio_threshold = st.sidebar.slider(
-    "Min PEG Ratio to Consider Overvalued", 
-    min_value=1.5, max_value=5.0, value=2.0, step=0.1,
-    format="%.1f"
-)
-
-price_to_sales_threshold = st.sidebar.slider(
-    "Min Price-to-Sales Ratio", 
-    min_value=5, max_value=30, value=10, step=1
-)
-
-price_to_book_threshold = st.sidebar.slider(
-    "Min Price-to-Book Ratio", 
-    min_value=3, max_value=20, value=5, step=1
-)
-
-short_interest_threshold = st.sidebar.slider(
-    "Min Short Interest (%)", 
-    min_value=5, max_value=50, value=10, step=1
-)
-
-# Main area button for single ticker analysis
-if single_ticker and not uploaded_file:
-    if st.button("Analyze Single Ticker"):
-        st.session_state.analyze_clicked = True
+def display_single_ticker_results(filtered_df, results_df, ticker):
+    if len(filtered_df) > 0:
+        st.warning(f"{ticker} appears to be overvalued based on the current criteria")
+        st.write("## Analysis Results")
+        
+        # Format display for single stock
+        display_df = filtered_df[[
+            'Symbol', 'CurrentPrice', 'P/E', 'PEG', 'Price/Sales', 'Price/Book',
+            'ShortInterest', 'RevenueGrowth', 'ProfitMargin', 'PremiumToHigh', 'OvervaluationScore'
+        ]].copy()
+        
+        st.dataframe(
+            display_df.style.format({
+                'CurrentPrice': '${:.2f}',
+                'P/E': '{:.1f}',
+                'PEG': '{:.1f}',
+                'Price/Sales': '{:.1f}',
+                'Price/Book': '{:.1f}',
+                'ShortInterest': '{:.1f}%',
+                'RevenueGrowth': '{:.1f}%',
+                'ProfitMargin': '{:.1f}%',
+                'PremiumToHigh': '{:.1f}%',
+                'OvervaluationScore': '{:.2f}'
+            })
+        )
+        
+        # Show all metrics for the single stock
+        st.write("### Detailed Metrics")
+        detailed_df = results_df.drop(columns=['Exchange']).T
+        detailed_df.columns = ['Value']
+        st.table(detailed_df.style.format({
+            'Value': lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) else x
+        }))
+    else:
+        st.success(f"{ticker} does not appear to be overvalued based on the current criteria")
 
 def get_stock_data(ticker, exchange):
     try:
@@ -169,6 +225,54 @@ def analyze_stocks(df):
         st.error(f"Error processing stocks: {str(e)}")
         return None, None
 
+# Sidebar for user inputs
+st.sidebar.header("Overvaluation Parameters")
+
+# Single ticker input
+single_ticker = st.sidebar.text_input(
+    "Enter a single stock ticker:",
+    help="Example: AAPL for Apple, MSFT for Microsoft"
+)
+
+# File upload
+uploaded_file = st.sidebar.file_uploader(
+    "Or upload Excel file with multiple tickers", 
+    type=["xlsx"],
+    help="File should contain 'Symbol' and 'Exchange' columns"
+)
+
+# Overvaluation parameters
+pe_ratio_threshold = st.sidebar.slider(
+    "Min P/E Ratio to Consider Overvalued", 
+    min_value=20, max_value=100, value=30, step=5
+)
+
+peg_ratio_threshold = st.sidebar.slider(
+    "Min PEG Ratio to Consider Overvalued", 
+    min_value=1.5, max_value=5.0, value=2.0, step=0.1,
+    format="%.1f"
+)
+
+price_to_sales_threshold = st.sidebar.slider(
+    "Min Price-to-Sales Ratio", 
+    min_value=5, max_value=30, value=10, step=1
+)
+
+price_to_book_threshold = st.sidebar.slider(
+    "Min Price-to-Book Ratio", 
+    min_value=3, max_value=20, value=5, step=1
+)
+
+short_interest_threshold = st.sidebar.slider(
+    "Min Short Interest (%)", 
+    min_value=5, max_value=50, value=10, step=1
+)
+
+# Main area button for single ticker analysis
+if single_ticker and not uploaded_file:
+    if st.button("Analyze Single Ticker"):
+        st.session_state.analyze_clicked = True
+
 # Main app logic
 if uploaded_file is not None:
     try:
@@ -204,109 +308,6 @@ else:
     2. Upload an Excel file with stock symbols
     3. Adjust overvaluation parameters in the sidebar as needed
     """)
-
-def display_results(filtered_df, results_df):
-    if len(filtered_df) > 0:
-        st.warning(f"Found {len(filtered_df)} potentially overvalued stocks out of {len(results_df)} analyzed")
-        st.write("## Overvalued Stock Candidates")
-        
-        # Format display
-        display_df = filtered_df[[
-            'Symbol', 'Exchange', 'CurrentPrice', 'P/E', 'PEG', 'Price/Sales', 'Price/Book',
-            'ShortInterest', 'RevenueGrowth', 'ProfitMargin', 'PremiumToHigh', 'OvervaluationScore'
-        ]].copy()
-        
-        st.dataframe(
-            display_df.style.format({
-                'CurrentPrice': '${:.2f}',
-                'P/E': '{:.1f}',
-                'PEG': '{:.1f}',
-                'Price/Sales': '{:.1f}',
-                'Price/Book': '{:.1f}',
-                'ShortInterest': '{:.1f}%',
-                'RevenueGrowth': '{:.1f}%',
-                'ProfitMargin': '{:.1f}%',
-                'PremiumToHigh': '{:.1f}%',
-                'OvervaluationScore': '{:.2f}'
-            }),
-            height=400
-        )
-        
-        # Visualizations
-        st.write("## Overvaluation Metrics Distribution")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.box(
-                results_df, 
-                y='P/E',
-                title='P/E Ratio Distribution',
-                points="all"
-            )
-            fig.add_hline(y=pe_ratio_threshold, line_dash="dash", line_color="red")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            fig = px.box(
-                results_df, 
-                y='Price/Sales',
-                title='Price-to-Sales Distribution',
-                points="all"
-            )
-            fig.add_hline(y=price_to_sales_threshold, line_dash="dash", line_color="red")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Download button
-        st.download_button(
-            label="Download Results as CSV",
-            data=filtered_df.to_csv(index=False),
-            file_name="overvalued_stocks.csv",
-            mime="text/csv"
-        )
-    else:
-        st.info("""
-        No stocks met all the overvaluation criteria. Try adjusting the parameters:
-        - Decrease P/E or PEG thresholds
-        - Lower Price-to-Sales requirement
-        - Reduce Price-to-Book requirement
-        - Decrease Short Interest threshold
-        """)
-
-def display_single_ticker_results(filtered_df, results_df, ticker):
-    if len(filtered_df) > 0:
-        st.warning(f"{ticker} appears to be overvalued based on the current criteria")
-        st.write("## Analysis Results")
-        
-        # Format display for single stock
-        display_df = filtered_df[[
-            'Symbol', 'CurrentPrice', 'P/E', 'PEG', 'Price/Sales', 'Price/Book',
-            'ShortInterest', 'RevenueGrowth', 'ProfitMargin', 'PremiumToHigh', 'OvervaluationScore'
-        ]].copy()
-        
-        st.dataframe(
-            display_df.style.format({
-                'CurrentPrice': '${:.2f}',
-                'P/E': '{:.1f}',
-                'PEG': '{:.1f}',
-                'Price/Sales': '{:.1f}',
-                'Price/Book': '{:.1f}',
-                'ShortInterest': '{:.1f}%',
-                'RevenueGrowth': '{:.1f}%',
-                'ProfitMargin': '{:.1f}%',
-                'PremiumToHigh': '{:.1f}%',
-                'OvervaluationScore': '{:.2f}'
-            })
-        )
-        
-        # Show all metrics for the single stock
-        st.write("### Detailed Metrics")
-        detailed_df = results_df.drop(columns=['Exchange']).T
-        detailed_df.columns = ['Value']
-        st.table(detailed_df.style.format({
-            'Value': lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) else x
-        }))
-    else:
-        st.success(f"{ticker} does not appear to be overvalued based on the current criteria")
 
 # Educational content
 st.markdown("""
