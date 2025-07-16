@@ -74,10 +74,8 @@ with st.sidebar.expander("Adjust valuation thresholds"):
         min_value=0, max_value=20, value=5, step=1
     )
 
-# Improved stock data fetcher
 def get_stock_data(ticker, exchange=""):
     try:
-        # Map exchanges to suffixes
         exchange_map = {
             "TORONTO": ".TO",
             "LONDON": ".L",
@@ -88,16 +86,15 @@ def get_stock_data(ticker, exchange=""):
         }
         
         full_ticker = ticker + exchange_map.get(exchange.upper(), "")
-        
         stock = yf.Ticker(full_ticker)
         hist = stock.history(period="1d")
+        
         if hist.empty:
             return None
             
         current_price = hist['Close'].iloc[-1]
         info = stock.info
         
-        # Calculate all metrics with fallback values
         metrics = {
             'Symbol': ticker,
             'Exchange': exchange,
@@ -125,23 +122,19 @@ def get_stock_data(ticker, exchange=""):
         st.warning(f"Error fetching data for {ticker}: {str(e)}")
         return None
 
-# Analysis function
 def analyze_stocks(tickers_df):
     try:
         st.write("## Analyzing Stocks...")
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
         results = []
         total_stocks = len(tickers_df)
         
         for i, row in tickers_df.iterrows():
             ticker = row['Symbol']
             exchange = row.get('Exchange', '')
-            
             status_text.text(f"Processing {ticker} ({i+1}/{total_stocks})...")
             progress_bar.progress((i+1)/total_stocks)
-            
             metrics = get_stock_data(ticker, exchange)
             if metrics:
                 results.append(metrics)
@@ -152,7 +145,6 @@ def analyze_stocks(tickers_df):
             
         results_df = pd.DataFrame(results)
         
-        # Apply filters with more flexible conditions
         filtered_df = results_df[
             (results_df['P/E'].fillna(np.inf) <= pe_ratio_threshold) &
             (results_df['PEG'].fillna(np.inf) <= peg_ratio_threshold) &
@@ -161,7 +153,6 @@ def analyze_stocks(tickers_df):
             (results_df['ROA'].fillna(0) >= roa_threshold)
         ].copy()
         
-        # Enhanced scoring with fixed calculation
         weights = {
             'P/E': 0.3,
             'PEG': 0.25,
@@ -185,28 +176,31 @@ def analyze_stocks(tickers_df):
         st.error(f"Error processing stocks: {str(e)}")
         return None, None
 
-# Display results
 def display_results(filtered_df, results_df, single_stock=False):
     if len(filtered_df) > 0:
         st.success(f"Found {len(filtered_df)} potentially undervalued {'stock' if single_stock else 'stocks'}")
         
-        # Display raw data table in an expandable section
-        with st.expander("📋 View Raw Data for All Stocks"):
-            st.write("### Raw Stock Data")
-            st.dataframe(
-                results_df.style.format({
-                    'CurrentPrice': '${:,.2f}',
-                    'MarketCap': '${:,.0f}',
-                    **{col: '{:.1f}' for col in ['P/E', 'PEG', 'Debt/Equity', 'CurrentRatio', 'Price/Book']},
-                    **{col: '{:.1f}%' for col in ['ROA', 'ROE', 'ProfitMargin', 'DividendYield', 'DiscountFromHigh']}
-                }),
-                height=400,
-                use_container_width=True
-            )
+        # Raw Data Section - Always Visible
+        st.write("---")
+        st.write("## Complete Stock Data")
+        st.info("This table shows all analyzed stocks before filtering. Scroll to see all metrics.")
+        st.dataframe(
+            results_df.style.format({
+                'CurrentPrice': '${:,.2f}',
+                'MarketCap': '${:,.0f}',
+                **{col: '{:.1f}' for col in ['P/E', 'PEG', 'Debt/Equity', 'CurrentRatio', 'Price/Book']},
+                **{col: '{:.1f}%' for col in ['ROA', 'ROE', 'ProfitMargin', 'DividendYield', 'DiscountFromHigh']}
+            }),
+            height=400,
+            use_container_width=True
+        )
         
-        # Enhanced display for single stock
+        # Filtered Results Section
+        st.write("---")
+        st.write("## Filtered Results")
+        
         if single_stock:
-            st.write("## Detailed Analysis")
+            st.write("### Detailed Analysis")
             detailed_metrics = filtered_df.iloc[0].to_dict()
             
             col1, col2 = st.columns(2)
@@ -229,10 +223,8 @@ def display_results(filtered_df, results_df, single_stock=False):
                 **{col: '{:.1f}' for col in ['P/E', 'PEG', 'Debt/Equity', 'CurrentRatio', 'Price/Book']},
                 **{col: '{:.1f}%' for col in ['ROA', 'ROE', 'ProfitMargin', 'DividendYield', 'DiscountFromHigh']}
             }))
-        
-        # Display for multiple stocks
         else:
-            st.write("## Undervalued Stock Candidates")
+            st.write("### Undervalued Stock Candidates")
             display_cols = [
                 'Symbol', 'CurrentPrice', 'P/E', 'PEG', 'Price/Book',
                 'Debt/Equity', 'CurrentRatio', 'ROA', 'DividendYield', 
@@ -256,52 +248,35 @@ def display_results(filtered_df, results_df, single_stock=False):
                 use_container_width=True
             )
             
-            # Visualizations
-            st.write("## Valuation Metrics Distribution")
+            st.write("### Valuation Metrics Distribution")
             col1, col2 = st.columns(2)
             with col1:
-                fig = px.box(
-                    results_df, 
-                    y='P/E',
-                    title='P/E Ratio Distribution',
-                    points="all"
-                )
+                fig = px.box(results_df, y='P/E', title='P/E Ratio Distribution', points="all")
                 fig.add_hline(y=pe_ratio_threshold, line_dash="dash", line_color="red")
                 st.plotly_chart(fig, use_container_width=True)
             
             with col2:
-                fig = px.box(
-                    results_df, 
-                    y='Price/Book',
-                    title='Price-to-Book Distribution',
-                    points="all"
-                )
+                fig = px.box(results_df, y='Price/Book', title='Price-to-Book Distribution', points="all")
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Download buttons for both raw and filtered data
+            st.write("---")
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
-                    label="Download Filtered Results as CSV",
+                    label="Download Filtered Results",
                     data=filtered_df.to_csv(index=False),
                     file_name="undervalued_stocks.csv",
                     mime="text/csv"
                 )
             with col2:
                 st.download_button(
-                    label="Download Raw Data as CSV",
+                    label="Download Complete Data",
                     data=results_df.to_csv(index=False),
-                    file_name="raw_stock_data.csv",
+                    file_name="all_stock_data.csv",
                     mime="text/csv"
                 )
     else:
-        st.warning("""
-        No stocks met all the valuation criteria. Try:
-        - Increasing P/E or PEG thresholds
-        - Decreasing Debt-to-Equity requirement  
-        - Lowering ROA requirement
-        - Checking if your stocks have sufficient data
-        """)
+        st.warning("No stocks met all the valuation criteria. Try adjusting your filters.")
 
 # Main logic
 if analysis_type == "Single Stock Analysis" and st.session_state.analyze_clicked:
