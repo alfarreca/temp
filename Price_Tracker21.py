@@ -56,7 +56,15 @@ def fetch_current_week_close(symbol, current_week_start):
     data = yf.download(symbol, start=current_week_start, end=today + timedelta(days=1), interval="1d", progress=False)
     if data.empty or "Close" not in data.columns:
         return np.nan
-    return float(round(data["Close"].dropna().iloc[-1], 3))
+
+    closes = data["Close"].dropna()
+    if not closes.empty:
+        try:
+            return float(round(closes.iloc[-1], 3))
+        except:
+            return np.nan
+    else:
+        return np.nan
 
 def calculate_cagr(start, end, periods_per_year, periods):
     if start <= 0 or end <= 0 or periods == 0:
@@ -69,7 +77,7 @@ def calculate_max_drawdown(prices):
     arr = np.array(prices, dtype=np.float64)
     running_max = np.maximum.accumulate(arr)
     drawdowns = (arr - running_max) / running_max
-    return drawdowns.min() * 100  # As percentage
+    return drawdowns.min() * 100
 
 @st.cache_data(show_spinner=False)
 def get_live_names_and_countries(symbols):
@@ -112,7 +120,7 @@ if uploaded_file:
                 if closes is not None and len(closes) == 6:
                     result[symbol] = closes + [current_close]
                 else:
-                    st.warning(f"Ticker {symbol}: Could not fetch 6 weeks of valid closing prices. Skipped.")
+                    st.warning(f"⚠️ Ticker {symbol}: Could not fetch 6 weeks of valid closing prices. Skipped.")
 
             if result:
                 all_labels = week_labels + [current_week_label]
