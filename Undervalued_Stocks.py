@@ -1,158 +1,130 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+import datetime
 
 st.set_page_config(page_title="Undervalued Stock Screener", layout="wide")
+st.title("📉 Undervalued Stock Screener")
+st.subheader("Warren Buffett-inspired Value Investing Strategy")
+st.write("This app helps identify potentially undervalued stocks based on fundamental analysis metrics. You can analyze either a single stock or upload a file with multiple tickers.")
 
-st.title("📊 Undervalued Stock Screener")
-st.markdown("""
-**Warren Buffett-inspired Value Investing Strategy**
+analysis_type = st.sidebar.radio("Select analysis type:", ["Single Stock Analysis", "Multiple Stocks Analysis"])
 
-This app helps identify potentially undervalued stocks based on fundamental analysis metrics. You can analyze either a single stock or upload a file with multiple tickers.
-""")
+max_pe = st.sidebar.slider("Max P/E Ratio", 5, 50, 25)
+max_peg = st.sidebar.slider("Max PEG Ratio", 0.1, 3.0, 1.5)
+max_debt_equity = st.sidebar.slider("Max Debt-to-Equity", 0.1, 5.0, 2.0)
+min_current_ratio = st.sidebar.slider("Min Current Ratio", 0.5, 3.0, 1.0)
+min_roa = st.sidebar.slider("Min Return on Assets (%)", 0, 20, 5)
 
-# ------------------------------
-# Core Functions
-# ------------------------------
+def fetch_stock_data(ticker_symbol):
+    ticker = yf.Ticker(ticker_symbol)
+    info = ticker.info
 
-def get_stock_data(ticker, exchange=""):
     try:
-        if exchange:
-            full_ticker = f"{ticker}.{exchange}"
-        else:
-            full_ticker = ticker
-
-        stock = yf.Ticker(full_ticker)
-        info = stock.info
-
-        # Manual calculations
         current_price = info.get("currentPrice")
+        pe_ratio = info.get("trailingPE")
         forward_pe = info.get("forwardPE")
-        earnings_growth = info.get("earningsQuarterlyGrowth")
-        dividend_yield = (info.get("dividendRate") or 0) / current_price * 100 if current_price else None
+        peg_ratio = info.get("pegRatio")
+        roa = info.get("returnOnAssets", 0) * 100 if info.get("returnOnAssets") is not None else None
+        roe = info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") is not None else None
+        profit_margin = info.get("profitMargins", 0) * 100 if info.get("profitMargins") is not None else None
+        pb_ratio = info.get("priceToBook")
+        div_yield = info.get("dividendYield", 0) * 100 if info.get("dividendYield") is not None else None
+        current_ratio = info.get("currentRatio")
 
-        # Calculate P/E if not present
-        trailing_eps = info.get("trailingEps")
-        pe_ratio = current_price / trailing_eps if trailing_eps else None
+        # Calculate D/E manually from balance sheet
+        try:
+            balance = ticker.balance_sheet
+            liabilities = balance.loc["Total Liab"][0]
+            equity = balance.loc["Total Stockholder Equity"][0]
+            if equity and abs(equity) > 1e-6:
+                de_ratio = liabilities / equity
+                print(f"Debt/Equity (Calculated): {de_ratio}")
+            else:
+                de_ratio = None
+        except Exception as e:
+            print(f"Error calculating D/E manually: {e}")
+            de_ratio = None
 
-        # Calculate PEG if forward PE and growth available
-        if forward_pe and earnings_growth:
-            try:
-                peg_ratio = forward_pe / (earnings_growth * 100)
-            except ZeroDivisionError:
-                peg_ratio = None
-        else:
-            peg_ratio = None
-
-        # Calculate Debt/Equity manually if needed
-        balance_sheet = stock.balance_sheet
-        if not balance_sheet.empty:
-            try:
-                total_liabilities = balance_sheet.loc["Total Liab"].iloc[0]
-                total_equity = balance_sheet.loc["Total Stockholder Equity"].iloc[0]
-                debt_to_equity = total_liabilities / total_equity if total_equity else None
-            except:
-                debt_to_equity = info.get("debtToEquity")
-        else:
-            debt_to_equity = info.get("debtToEquity")
+        fifty_two_week_high = info.get("fiftyTwoWeekHigh")
+        fifty_two_week_low = info.get("fiftyTwoWeekLow")
+        discount_from_high = (1 - current_price / fifty_two_week_high) * 100 if fifty_two_week_high else None
+        beta = info.get("beta")
+        market_cap = info.get("marketCap")
 
         return {
-            "Symbol": ticker,
-            "Exchange": exchange,
+            "Symbol": ticker_symbol,
+            "Exchange": info.get("exchange"),
             "CurrentPrice": current_price,
             "P/E": pe_ratio,
             "Forward P/E": forward_pe,
-            "PEG": peg_ratio,
-            "Debt/Equity": debt_to_equity,
-            "CurrentRatio": info.get("currentRatio"),
-            "ROA": info.get("returnOnAssets", 0) * 100 if info.get("returnOnAssets") else None,
-            "ROE": info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") else None,
-            "ProfitMargin": info.get("profitMargins", 0) * 100 if info.get("profitMargins") else None,
-            "Price/Book": info.get("priceToBook"),
-            "DividendYield": dividend_yield,
-            "52WeekLow": info.get("fiftyTwoWeekLow"),
-            "52WeekHigh": info.get("fiftyTwoWeekHigh"),
-            "DiscountFromHigh": (1 - current_price / info.get("fiftyTwoWeekHigh")) * 100 if current_price and info.get("fiftyTwoWeekHigh") else None,
-            "Beta": info.get("beta"),
-            "MarketCap": info.get("marketCap"),
+            "PEG": peg_ratio if forward_pe and forward_pe > 0 else None,
+            "Debt/Equity": de_ratio,
+            "CurrentRatio": current_ratio,
+            "ROA": roa,
+            "ROE": roe,
+            "ProfitMargin": profit_margin,
+            "Price/Book": pb_ratio,
+            "DividendYield": div_yield,
+            "52WeekLow": fifty_two_week_low,
+            "52WeekHigh": fifty_two_week_high,
+            "DiscountFromHigh": discount_from_high,
+            "Beta": beta,
+            "MarketCap": market_cap
         }
-    except Exception as e:
-        st.warning(f"⚠️ Failed to fetch data for {ticker}: {e}")
-        return {}
 
-def analyze_stocks(df):
+    except Exception as e:
+        st.error(f"Error fetching data for {ticker_symbol}: {e}")
+        return None
+
+def analyze_stocks(tickers):
     results = []
-    for _, row in df.iterrows():
-        data = get_stock_data(row['Symbol'], row.get("Exchange", ""))
+    for i, symbol in enumerate(tickers):
+        st.write(f"Processing {symbol} ({i+1}/{len(tickers)})...")
+        data = fetch_stock_data(symbol)
         if data:
             results.append(data)
-    results_df = pd.DataFrame(results)
 
-    # Filter based on sliders
-    filtered_df = results_df[
-        (results_df["P/E"] <= st.session_state.max_pe) &
-        (results_df["PEG"] <= st.session_state.max_peg) &
-        (results_df["Debt/Equity"] <= st.session_state.max_de) &
-        (results_df["CurrentRatio"] >= st.session_state.min_cr) &
-        (results_df["ROA"] >= st.session_state.min_roa)
+    df = pd.DataFrame(results)
+    filtered_df = df[
+        (df["P/E"].fillna(9999) < max_pe) &
+        (df["PEG"].fillna(9999) < max_peg) &
+        (df["Debt/Equity"].fillna(9999) < max_debt_equity) &
+        (df["CurrentRatio"].fillna(0) > min_current_ratio) &
+        (df["ROA"].fillna(0) > min_roa)
     ]
 
-    return filtered_df, results_df
-
-def display_results(df):
-    if df.empty:
-        st.warning("No data matched your filters or ticker was invalid.")
-    else:
-        st.subheader("Raw Stock Data from Yahoo Finance")
-        st.dataframe(df)
-        st.success(f"✅ Finished analyzing {len(df)} stock(s).")
-
-# ------------------------------
-# UI Controls
-# ------------------------------
-
-st.sidebar.header("Analysis Options")
-analysis_type = st.sidebar.radio("Select analysis type:", ["Single Stock Analysis", "Multiple Stocks Analysis"])
-
-if "max_pe" not in st.session_state:
-    st.session_state.max_pe = 25
-    st.session_state.max_peg = 1.5
-    st.session_state.max_de = 2.0
-    st.session_state.min_cr = 1.0
-    st.session_state.min_roa = 5
-
-with st.sidebar.expander("Adjust valuation thresholds"):
-    st.session_state.max_pe = st.slider("Max P/E Ratio", 5, 50, st.session_state.max_pe)
-    st.session_state.max_peg = st.slider("Max PEG Ratio", 0.1, 3.0, st.session_state.max_peg)
-    st.session_state.max_de = st.slider("Max Debt-to-Equity", 0.1, 5.0, st.session_state.max_de)
-    st.session_state.min_cr = st.slider("Min Current Ratio", 0.5, 3.0, st.session_state.min_cr)
-    st.session_state.min_roa = st.slider("Min Return on Assets (%)", 0, 20, st.session_state.min_roa)
-
-# ------------------------------
-# Analysis Section
-# ------------------------------
+    return filtered_df, df
 
 if analysis_type == "Single Stock Analysis":
-    st.sidebar.subheader("Single Stock Parameters")
-    symbol = st.sidebar.text_input("Enter stock ticker:")
-    exchange = st.sidebar.selectbox("Select exchange (if international):", ["", "TO", "L", "AX", "HK"], index=0)
+    single_symbol = st.text_input("Enter stock ticker:", value="el")
+    exchange = st.selectbox("Select exchange (if international):", ["", "LON", "FRA", "AS", "TO", "AX", "HK", "TWO"])
 
-    if st.sidebar.button("Analyze Single Stock"):
-        st.info(f"Processing {symbol} (1/1)...")
-        df = pd.DataFrame([{"Symbol": symbol, "Exchange": exchange}])
-        _, results_df = analyze_stocks(df)
-        display_results(results_df)
+    if st.button("Analyze Single Stock"):
+        if exchange:
+            single_symbol = f"{single_symbol}.{exchange}"
+        filtered_df, results_df = analyze_stocks([single_symbol])
+
+        if results_df.empty:
+            st.warning("No data matched your filters or ticker was invalid.")
+        else:
+            st.subheader("Raw Stock Data from Yahoo Finance")
+            st.dataframe(results_df)
+            st.success(f"✅ Finished analyzing {len(results_df)} stock(s).")
 
 elif analysis_type == "Multiple Stocks Analysis":
-    st.sidebar.subheader("Upload Stock List")
-    uploaded_file = st.sidebar.file_uploader("Upload CSV with 'Symbol' column", type="csv")
+    uploaded_file = st.file_uploader("Upload CSV with tickers", type="csv")
+    if uploaded_file is not None:
+        tickers_df = pd.read_csv(uploaded_file)
+        if "Symbol" not in tickers_df.columns:
+            st.error("CSV must contain a 'Symbol' column.")
+        else:
+            tickers = tickers_df["Symbol"].dropna().tolist()
+            filtered_df, results_df = analyze_stocks(tickers)
 
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        st.info(f"Processing {len(df)} tickers...")
-        filtered_df, results_df = analyze_stocks(df)
-
-        display_results(results_df)
-
-        st.download_button("📥 Download Raw Data", results_df.to_csv(index=False), file_name="stock_data.csv")
-        st.download_button("📉 Download Filtered Results", filtered_df.to_csv(index=False), file_name="filtered_data.csv")
+            if results_df.empty:
+                st.warning("No data matched your filters.")
+            else:
+                st.subheader("Raw Stock Data from Yahoo Finance")
+                st.dataframe(results_df)
+                st.success(f"✅ Finished analyzing {len(results_df)} stock(s).")
