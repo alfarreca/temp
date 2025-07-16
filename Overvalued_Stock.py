@@ -12,10 +12,14 @@ This app helps identify potentially overvalued stocks based on fundamental analy
 You can either upload an Excel file with multiple stocks or analyze a single ticker.
 """)
 
+# Initialize session state for button click
+if 'analyze_clicked' not in st.session_state:
+    st.session_state.analyze_clicked = False
+
 # Sidebar for user inputs
 st.sidebar.header("Overvaluation Parameters")
 
-# Single ticker input with analyze button
+# Single ticker input
 single_ticker = st.sidebar.text_input(
     "Enter a single stock ticker:",
     help="Example: AAPL for Apple, MSFT for Microsoft"
@@ -55,10 +59,10 @@ short_interest_threshold = st.sidebar.slider(
     min_value=5, max_value=50, value=10, step=1
 )
 
-# Move the analyze button to main area instead of sidebar
-analyze_single_ticker = False
+# Main area button for single ticker analysis
 if single_ticker and not uploaded_file:
-    analyze_single_ticker = st.button("Analyze Single Ticker")
+    if st.button("Analyze Single Ticker"):
+        st.session_state.analyze_clicked = True
 
 def get_stock_data(ticker, exchange):
     try:
@@ -185,13 +189,14 @@ if uploaded_file is not None:
                 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-elif analyze_single_ticker:
+elif st.session_state.analyze_clicked:
     # Create a dataframe with the single ticker
     df = pd.DataFrame({'Symbol': [single_ticker], 'Exchange': ''})
     filtered_df, results_df = analyze_stocks(df)
     
     if filtered_df is not None:
         display_single_ticker_results(filtered_df, results_df, single_ticker)
+    st.session_state.analyze_clicked = False  # Reset after analysis
 else:
     st.info("""
     To begin analysis:
