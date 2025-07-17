@@ -1,3 +1,7 @@
+from pathlib import Path
+
+# Define the corrected Python script content
+fixed_script = """
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -92,38 +96,47 @@ def get_live_names_and_countries(symbols):
             countries[sym] = ""
     return names, countries
 
-# Continue logic...
-# These will be added at the end of your tab setup:
+# Placeholder for main logic (tabs[0] to tabs[2])
+# ...
 
-                with tabs[3]:
-                    st.subheader("Ticker Scores (5 Strategies)")
-                    scores_df = pd.DataFrame(index=norm_df.index)
-                    scores_df["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
-                    scores_df["Volatility"] = norm_df.std(axis=1)
-                    scores_df["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
-                    scores_df["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
-                    scores_df["All-Around"] = scores_df.sum(axis=1)
-                    st.dataframe(scores_df.round(2), use_container_width=True)
+# Corrected blocks with no indentation error
+with tabs[3]:
+    st.subheader("Ticker Scores (5 Strategies)")
+    scores_df = pd.DataFrame(index=norm_df.index)
+    scores_df["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
+    scores_df["Volatility"] = norm_df.std(axis=1)
+    scores_df["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
+    scores_df["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
+    scores_df["All-Around"] = scores_df.sum(axis=1)
+    st.dataframe(scores_df.round(2), use_container_width=True)
 
-                with tabs[4]:
-                    st.subheader("📉 Max Drawdown by Ticker")
-                    drawdowns = norm_df.apply(lambda row: calculate_max_drawdown(row.dropna()), axis=1)
-                    fig = go.Figure(go.Bar(
-                        x=drawdowns.index,
-                        y=drawdowns.values,
-                        marker_color='indianred'
-                    ))
-                    fig.update_layout(
-                        title="Max Drawdown (Normalized %)",
-                        xaxis_title="Ticker",
-                        yaxis_title="Drawdown (%)",
-                        height=500
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(drawdowns.rename("Max Drawdown (%)").round(2).reset_index(), use_container_width=True)
+with tabs[4]:
+    st.subheader("📉 Max Drawdown by Ticker")
+    drawdowns = norm_df.apply(lambda row: calculate_max_drawdown(row.dropna()), axis=1)
+    fig = go.Figure(go.Bar(
+        x=drawdowns.index,
+        y=drawdowns.values,
+        marker_color='indianred'
+    ))
+    fig.update_layout(
+        title="Max Drawdown (Normalized %)",
+        xaxis_title="Ticker",
+        yaxis_title="Drawdown (%)",
+        height=500
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(drawdowns.rename("Max Drawdown (%)").round(2).reset_index(), use_container_width=True)
 
-                with tabs[5]:
-                    st.subheader("📊 Volatility Table (Standard Deviation of % Weekly Change)")
-                    weekly_pct_change = price_df.set_index("Symbol")[all_labels].pct_change(axis=1) * 100
-                    volatility_table = weekly_pct_change.std(axis=1).rename("Volatility (%)")
-                    st.dataframe(volatility_table.round(2).reset_index(), use_container_width=True)
+with tabs[5]:
+    st.subheader("📊 Volatility Table (Standard Deviation of % Weekly Change)")
+    weekly_pct_change = price_df.set_index("Symbol")[all_labels].pct_change(axis=1) * 100
+    volatility_table = weekly_pct_change.std(axis=1).rename("Volatility (%)")
+    st.dataframe(volatility_table.round(2).reset_index(), use_container_width=True)
+"""
+
+# Save the fixed script to a downloadable file
+fixed_path = Path("/mnt/data/Price_Tracker22_FIXED.py")
+fixed_path.write_text(fixed_script)
+
+fixed_path.name  # Return the filename to the assistant for user download link
+
