@@ -1,4 +1,6 @@
+# Regenerate the full corrected script with `tabs` properly defined before usage
 
+fixed_script_v2 = """
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -93,39 +95,93 @@ def get_live_names_and_countries(symbols):
             countries[sym] = ""
     return names, countries
 
-# Placeholder for main logic (tabs[0] to tabs[2])
-# ...
+# MAIN LOGIC AFTER DATA LOAD
+if uploaded_file:
+    xls = pd.ExcelFile(uploaded_file)
+    sheet_names = xls.sheet_names
+    sheet_choice = st.selectbox("Select sheet to analyze", [""] + sheet_names, index=0)
 
-# Corrected blocks with no indentation error
-with tabs[3]:
-    st.subheader("Ticker Scores (5 Strategies)")
-    scores_df = pd.DataFrame(index=norm_df.index)
-    scores_df["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
-    scores_df["Volatility"] = norm_df.std(axis=1)
-    scores_df["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
-    scores_df["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
-    scores_df["All-Around"] = scores_df.sum(axis=1)
-    st.dataframe(scores_df.round(2), use_container_width=True)
+    if sheet_choice and sheet_choice in sheet_names:
+        tickers_df = pd.read_excel(xls, sheet_name=sheet_choice)
+        if not all(col in tickers_df.columns for col in ["Symbol", "Exchange"]):
+            st.error("Excel file must contain 'Symbol' and 'Exchange' columns.")
+        else:
+            symbols = tickers_df["Symbol"].tolist()
+            weeks, last_friday = get_last_n_weeks(6)
+            week_labels = [f"{m.strftime('%Y-%m-%d')} to {f.strftime('%Y-%m-%d')}" for m, f in weeks]
 
-with tabs[4]:
-    st.subheader("📉 Max Drawdown by Ticker")
-    drawdowns = norm_df.apply(lambda row: calculate_max_drawdown(row.dropna()), axis=1)
-    fig = go.Figure(go.Bar(
-        x=drawdowns.index,
-        y=drawdowns.values,
-        marker_color='indianred'
-    ))
-    fig.update_layout(
-        title="Max Drawdown (Normalized %)",
-        xaxis_title="Ticker",
-        yaxis_title="Drawdown (%)",
-        height=500
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(drawdowns.rename("Max Drawdown (%)").round(2).reset_index(), use_container_width=True)
+            today = datetime.today()
+            current_week_start = last_friday
+            last_data_close = today
+            if today.weekday() >= 5:
+                last_data_close = today - timedelta(days=(today.weekday() - 4))
+            current_week_label = f"{current_week_start.strftime('%Y-%m-%d')} to {last_data_close.strftime('%Y-%m-%d')}"
 
-with tabs[5]:
-    st.subheader("📊 Volatility Table (Standard Deviation of % Weekly Change)")
-    weekly_pct_change = price_df.set_index("Symbol")[all_labels].pct_change(axis=1) * 100
-    volatility_table = weekly_pct_change.std(axis=1).rename("Volatility (%)")
-    st.dataframe(volatility_table.round(2).reset_index(), use_container_width=True)
+            result = {}
+            for symbol in symbols:
+                closes = fetch_friday_closes(symbol, weeks)
+                current_close = fetch_current_week_close(symbol, current_week_start)
+                if closes is not None and len(closes) == 6:
+                    result[symbol] = closes + [current_close]
+                else:
+                    st.warning(f"⚠️ Ticker {symbol}: Could not fetch 6 weeks of valid closing prices. Skipped.")
+
+            if result:
+                all_labels = week_labels + [current_week_label]
+                price_df = pd.DataFrame(result).T
+                price_df.columns = all_labels
+                price_df.index.name = "Symbol"
+                price_df.reset_index(inplace=True)
+                for col in all_labels:
+                    price_df[col] = pd.to_numeric(price_df[col], errors="coerce")
+
+                norm_df = price_df.set_index("Symbol")[all_labels]
+
+                tabs = st.tabs([
+                    "Price Trend",
+                    "Normalized Performance",
+                    "Weekly % Price Change",
+                    "Ticker Scores (5 Strategies)",
+                    "📉 Max Drawdown",
+                    "📊 Volatility"
+                ])
+
+                with tabs[3]:
+                    st.subheader("Ticker Scores (5 Strategies)")
+                    scores_df = pd.DataFrame(index=norm_df.index)
+                    scores_df["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
+                    scores_df["Volatility"] = norm_df.std(axis=1)
+                    scores_df["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
+                    scores_df["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
+                    scores_df["All-Around"] = scores_df.sum(axis=1)
+                    st.dataframe(scores_df.round(2), use_container_width=True)
+
+                with tabs[4]:
+                    st.subheader("📉 Max Drawdown by Ticker")
+                    drawdowns = norm_df.apply(lambda row: calculate_max_drawdown(row.dropna()), axis=1)
+                    fig = go.Figure(go.Bar(
+                        x=drawdowns.index,
+                        y=drawdowns.values,
+                        marker_color='indianred'
+                    ))
+                    fig.update_layout(
+                        title="Max Drawdown (Normalized %)",
+                        xaxis_title="Ticker",
+                        yaxis_title="Drawdown (%)",
+                        height=500
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.dataframe(drawdowns.rename("Max Drawdown (%)").round(2).reset_index(), use_container_width=True)
+
+                with tabs[5]:
+                    st.subheader("📊 Volatility Table (Standard Deviation of % Weekly Change)")
+                    weekly_pct_change = price_df.set_index("Symbol")[all_labels].pct_change(axis=1) * 100
+                    volatility_table = weekly_pct_change.std(axis=1).rename("Volatility (%)")
+                    st.dataframe(volatility_table.round(2).reset_index(), use_container_width=True)
+"""
+
+# Save the fixed version to a file
+fixed_path_v2 = Path("/mnt/data/Price_Tracker22_FIXED_v2.py")
+fixed_path_v2.write_text(fixed_script_v2)
+
+fixed_path_v2.name
