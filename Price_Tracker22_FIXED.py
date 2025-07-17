@@ -1,6 +1,4 @@
-# Regenerate the full corrected script with `tabs` properly defined before usage
 
-fixed_script_v2 = """
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -178,10 +176,3 @@ if uploaded_file:
                     weekly_pct_change = price_df.set_index("Symbol")[all_labels].pct_change(axis=1) * 100
                     volatility_table = weekly_pct_change.std(axis=1).rename("Volatility (%)")
                     st.dataframe(volatility_table.round(2).reset_index(), use_container_width=True)
-"""
-
-# Save the fixed version to a file
-fixed_path_v2 = Path("/mnt/data/Price_Tracker22_FIXED_v2.py")
-fixed_path_v2.write_text(fixed_script_v2)
-
-fixed_path_v2.name
