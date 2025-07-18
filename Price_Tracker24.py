@@ -82,28 +82,38 @@ if uploaded_file:
 
     weeks, last_friday = get_last_n_weeks(6)
     week_labels = [f"{start.date()} to {end.date()}" for start, end in weeks]
+
+    today = datetime.today()
     current_week_start = last_friday + timedelta(days=1)
-    current_week_label = f"{current_week_start.date()} to {datetime.today().date()}"
+    if today < current_week_start:
+        current_week_label = None
+        all_labels = week_labels
+    else:
+        current_week_label = f"{current_week_start.date()} to {today.date()}"
+        all_labels = week_labels + [current_week_label]
 
     price_data = []
     for sym in symbols:
         closes = fetch_friday_closes(sym, weeks)
-        current_close = fetch_yesterday_close(sym)
-        closes.append(current_close)
+        if current_week_label:
+            current_close = fetch_yesterday_close(sym)
+            closes.append(current_close)
+        else:
+            closes.append(np.nan)
         price_data.append([sym] + closes)
 
-    all_labels = week_labels + [current_week_label]
     price_df = pd.DataFrame(price_data, columns=["Symbol"] + all_labels)
 
     st.subheader("Weekly % Price Change")
     pct_df = price_df.copy()
     # Correct % change calculation with manual last-week-to-yesterday column
-    pct_df[all_labels[:-1]] = pct_df[all_labels[:-1]].pct_change(axis=1) * 100
-    last_week_label = all_labels[-2]
-    current_label = all_labels[-1]
-    last_friday_close = price_df[last_week_label]
-    yesterday_close = price_df[current_label]
-    pct_df[current_label] = ((yesterday_close - last_friday_close) / last_friday_close) * 100
+    pct_df[week_labels] = pct_df[week_labels].pct_change(axis=1) * 100
+    if current_week_label:
+        last_week_label = week_labels[-1]
+        current_label = current_week_label
+        last_friday_close = price_df[last_week_label]
+        yesterday_close = price_df[current_label]
+        pct_df[current_label] = ((yesterday_close - last_friday_close) / last_friday_close) * 100
     st.dataframe(pct_df.round(2), use_container_width=True)
 
     st.subheader("Normalized Price Performance (Start = 100)")
