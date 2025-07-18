@@ -44,9 +44,9 @@ def fetch_friday_closes(symbol, weeks):
             closes.append(np.nan)
     return closes
 
-def fetch_current_week_close(symbol, current_week_start):
-    today = datetime.today()
-    data = yf.download(symbol, start=current_week_start, end=today + timedelta(days=1), interval="1d", progress=False)
+def fetch_yesterday_close(symbol):
+    yesterday = datetime.today() - timedelta(days=1)
+    data = yf.download(symbol, start=yesterday, end=yesterday + timedelta(days=1), interval="1d", progress=False)
     closes = data["Close"].dropna()
     return float(round(closes.iloc[-1], 3)) if not closes.empty else np.nan
 
@@ -88,7 +88,7 @@ if uploaded_file:
     price_data = []
     for sym in symbols:
         closes = fetch_friday_closes(sym, weeks)
-        current_close = fetch_current_week_close(sym, current_week_start)
+        current_close = fetch_yesterday_close(sym)
         closes.append(current_close)
         price_data.append([sym] + closes)
 
