@@ -26,13 +26,12 @@ def fetch_friday_closes(symbol, weeks):
     closes = []
     for monday, friday in weeks:
         week_data = df[(df.index >= monday) & (df.index <= friday)]
-        close = week_data[week_data.index.weekday == 4]["Close"]
+        close = week_data[week_data.index.weekday == 4]["Close"].dropna()
         if not close.empty:
-            closes.append(float(round(close.dropna().iloc[-1], 3)))
-        elif not week_data.empty:
-            closes.append(float(round(week_data["Close"].dropna().iloc[-1], 3)))
+            closes.append(float(round(close.iloc[-1], 3)))
         else:
-            closes.append(np.nan)
+            fallback = week_data["Close"].dropna()
+            closes.append(float(round(fallback.iloc[-1], 3)) if not fallback.empty else np.nan)
     return closes if sum(np.isnan(closes)) == 0 else None
 
 def fetch_current_week_close(symbol, current_week_start):
@@ -90,7 +89,7 @@ if uploaded_file:
 
                 weekly_pct = norm_df.pct_change(axis=1) * 100
 
-                # Clean-up: Drop last column if no change or bad range
+                # Clean-up: Drop last column if no change or same start/end
                 if weekly_pct.columns[-1].split("→")[0] == weekly_pct.columns[-1].split("→")[1] or weekly_pct.iloc[:, -1].nunique() <= 1:
                     weekly_pct = weekly_pct.iloc[:, :-1]
                     norm_df = norm_df.iloc[:, :-1]
