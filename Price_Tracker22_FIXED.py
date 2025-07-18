@@ -83,7 +83,7 @@ if uploaded_file:
                 if closes is not None and len(closes) == 6:
                     all_data[sym] = closes + [current]
                 else:
-                    st.warning(f"{sym}: insufficient data, skipped.")
+                    st.warning(f"⚠️ Ticker **{sym}**: insufficient data, skipped.")
 
             if all_data:
                 labels = [f"{m.strftime('%b %d')}→{f.strftime('%b %d')}" for m, f in weeks]
@@ -97,7 +97,11 @@ if uploaded_file:
                     price_df[col] = pd.to_numeric(price_df[col], errors="coerce")
 
                 norm_df = price_df.set_index("Symbol")[labels]
+                # Prevent divide-by-zero error in normalization
+                norm_df = norm_df.replace(0, np.nan)
                 normed = norm_df.div(norm_df.iloc[:, 0], axis=0)
+
+                weekly_pct = norm_df.pct_change(axis=1) * 100  # Cached once
 
                 tabs = st.tabs([
                     "📈 Price Trend",
@@ -117,7 +121,7 @@ if uploaded_file:
                             mode='lines+markers', name=sym,
                             hovertemplate=f"<b>{sym}</b><br>%{{y}}"
                         ))
-                    fig.update_layout(hovermode="closest", height=500)
+                    fig.update_layout(hovermode="x unified", height=500)
                     st.plotly_chart(fig, use_container_width=True)
 
                 with tabs[1]:
@@ -129,33 +133,33 @@ if uploaded_file:
                             mode="lines", name=sym,
                             hovertemplate=f"<b>{sym}</b><br>%{{y:.2f}}"
                         ))
-                    norm_chart.update_layout(hovermode="closest", height=500)
+                    norm_chart.update_layout(hovermode="x unified", height=500)
                     st.plotly_chart(norm_chart, use_container_width=True)
 
                 with tabs[2]:
                     st.subheader("📈 Weekly % Change")
-                    weekly_pct = norm_df.pct_change(axis=1) * 100
                     st.dataframe(weekly_pct.round(2), use_container_width=True)
 
                 with tabs[3]:
-                    st.subheader("🎯 Scores")
+                    st.subheader("🎯 Ticker Scores")
                     scores = pd.DataFrame(index=norm_df.index)
                     scores["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
                     scores["Volatility"] = norm_df.std(axis=1)
                     scores["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
                     scores["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
                     scores["All-Around"] = scores.sum(axis=1)
-                    st.dataframe(scores.round(2), use_container_width=True)
+                    st.dataframe(scores.round(2).sort_values("All-Around", ascending=False), use_container_width=True)
 
                 with tabs[4]:
                     st.subheader("📉 Max Drawdown")
-                    dd = norm_df.apply(lambda row: calculate_max_drawdown(row), axis=1)
-                    fig = go.Figure(go.Bar(x=dd.index, y=dd.values, marker_color="crimson"))
+                    dd = norm_df.apply(calculate_max_drawdown, axis=1)
+                    fig = go.Figure(go.Bar(x=dd.index, y=dd.values, marker_color="crimson",
+                                           hovertemplate="%{x}<br>Drawdown: %{y:.2f}%"))
                     fig.update_layout(title="Drawdown (%)", yaxis_title="Drawdown", height=500)
                     st.plotly_chart(fig, use_container_width=True)
                     st.dataframe(dd.rename("Drawdown (%)").round(2).reset_index(), use_container_width=True)
 
                 with tabs[5]:
                     st.subheader("📉 Volatility (Standard Deviation of Weekly % Change)")
-                    volatility = norm_df.pct_change(axis=1).std(axis=1) * 100
+                    volatility = weekly_pct.std(axis=1)
                     st.dataframe(volatility.rename("Volatility (%)").round(2).reset_index(), use_container_width=True)
