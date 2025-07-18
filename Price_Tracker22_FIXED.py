@@ -102,11 +102,21 @@ if uploaded_file:
                 with tabs[0]:
                     st.subheader("📈 Price Trend")
                     fig = go.Figure()
+                    baseline = norm_df.iloc[:, 0]
+                    pct_change_from_start = norm_df.subtract(baseline, axis=0).div(baseline, axis=0) * 100
+
                     for sym in norm_df.index:
                         fig.add_trace(go.Scatter(
-                            x=labels, y=norm_df.loc[sym],
-                            mode='lines+markers', name=sym,
-                            hovertemplate=f"<b>{sym}</b><br>%{{y}}"
+                            x=labels,
+                            y=norm_df.loc[sym],
+                            customdata=pct_change_from_start.loc[sym].values.reshape(-1, 1),
+                            mode='lines+markers',
+                            name=sym,
+                            hovertemplate=(
+                                f"<b>{sym}</b><br>"
+                                + "Price: %{y:.2f}<br>"
+                                + "Change: %{customdata[0]:.2f}%"
+                            )
                         ))
                     fig.update_layout(hovermode="x unified", height=500)
                     st.plotly_chart(fig, use_container_width=True)
