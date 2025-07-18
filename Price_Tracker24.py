@@ -98,8 +98,6 @@ if uploaded_file:
         if current_week_label:
             current_close = fetch_yesterday_close(sym)
             closes.append(current_close)
-        else:
-            closes.append(np.nan)
         price_data.append([sym] + closes)
 
     price_df = pd.DataFrame(price_data, columns=["Symbol"] + all_labels)
