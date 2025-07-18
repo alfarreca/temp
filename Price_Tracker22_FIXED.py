@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -6,6 +5,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import plotly.graph_objs as go
 
+st.set_page_config(layout="wide")
 st.title("📈 Weekly Price Tracker (Fri–Fri Weeks + Current Week + Scoring)")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type="xlsx")
@@ -14,67 +14,36 @@ def get_last_n_weeks(n):
     today = datetime.today()
     offset = (today.weekday() - 4) % 7  # 4 = Friday
     last_friday = today - timedelta(days=offset)
-    weeks = []
-    for i in reversed(range(n)):
-        this_friday = last_friday - timedelta(weeks=i)
-        this_monday = this_friday - timedelta(days=4)
-        weeks.append((this_monday, this_friday))
+    weeks = [(last_friday - timedelta(weeks=i) - timedelta(days=4),
+              last_friday - timedelta(weeks=i)) for i in reversed(range(n))]
     return weeks, last_friday
 
 def fetch_friday_closes(symbol, weeks):
-    first_monday = weeks[0][0]
-    last_friday = weeks[-1][1]
-    data = yf.download(symbol, start=first_monday, end=last_friday + timedelta(days=1), interval="1d", progress=False)
-    if data.empty or "Close" not in data.columns:
+    start_date, end_date = weeks[0][0], weeks[-1][1]
+    df = yf.download(symbol, start=start_date, end=end_date + timedelta(days=1), interval="1d", progress=False)
+    if df.empty or "Close" not in df.columns:
         return None
-
     closes = []
     for monday, friday in weeks:
-        week_data = data.loc[(data.index >= pd.Timestamp(monday)) & (data.index <= pd.Timestamp(friday))]
-        friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]
-
-        if not friday_close.empty and pd.api.types.is_numeric_dtype(friday_close):
-            try:
-                closes.append(float(round(friday_close.dropna().iloc[-1], 3)))
-            except:
-                closes.append(np.nan)
-        elif not week_data.empty and "Close" in week_data.columns:
-            non_nan_closes = week_data["Close"].dropna()
-            if not non_nan_closes.empty:
-                try:
-                    closes.append(float(round(non_nan_closes.iloc[-1], 3)))
-                except:
-                    closes.append(np.nan)
-            else:
-                closes.append(np.nan)
+        week_data = df[(df.index >= monday) & (df.index <= friday)]
+        close = week_data[week_data.index.weekday == 4]["Close"]
+        if not close.empty:
+            closes.append(float(round(close.dropna().iloc[-1], 3)))
+        elif not week_data.empty:
+            closes.append(float(round(week_data["Close"].dropna().iloc[-1], 3)))
         else:
             closes.append(np.nan)
-
     return closes if sum(np.isnan(closes)) == 0 else None
 
 def fetch_current_week_close(symbol, current_week_start):
     today = datetime.today()
-    data = yf.download(symbol, start=current_week_start, end=today + timedelta(days=1), interval="1d", progress=False)
-    if data.empty or "Close" not in data.columns:
+    df = yf.download(symbol, start=current_week_start, end=today + timedelta(days=1), interval="1d", progress=False)
+    if df.empty or "Close" not in df.columns:
         return np.nan
-
-    closes = data["Close"].dropna()
-    if not closes.empty:
-        try:
-            return float(round(closes.iloc[-1], 3))
-        except:
-            return np.nan
-    else:
-        return np.nan
-
-def calculate_cagr(start, end, periods_per_year, periods):
-    if start <= 0 or end <= 0 or periods == 0:
-        return np.nan
-    return (end / start) ** (periods_per_year / periods) - 1
+    return float(round(df["Close"].dropna().iloc[-1], 3)) if not df["Close"].dropna().empty else np.nan
 
 def calculate_max_drawdown(prices):
-    if len(prices) < 2:
-        return 0.0
+    if len(prices) < 2: return 0.0
     arr = np.array(prices, dtype=np.float64)
     running_max = np.maximum.accumulate(arr)
     drawdowns = (arr - running_max) / running_max
@@ -86,93 +55,107 @@ def get_live_names_and_countries(symbols):
     for sym in symbols:
         try:
             info = yf.Ticker(sym).info
-            names[sym] = info.get("longName") or info.get("shortName") or sym
+            names[sym] = info.get("longName") or sym
             countries[sym] = info.get("country") or ""
-        except Exception:
+        except:
             names[sym] = sym
             countries[sym] = ""
     return names, countries
 
-# MAIN LOGIC AFTER DATA LOAD
 if uploaded_file:
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
-    sheet_choice = st.selectbox("Select sheet to analyze", [""] + sheet_names, index=0)
+    sheet_choice = st.selectbox("Select sheet to analyze", [""] + sheet_names)
 
-    if sheet_choice and sheet_choice in sheet_names:
-        tickers_df = pd.read_excel(xls, sheet_name=sheet_choice)
-        if not all(col in tickers_df.columns for col in ["Symbol", "Exchange"]):
-            st.error("Excel file must contain 'Symbol' and 'Exchange' columns.")
+    if sheet_choice:
+        df = pd.read_excel(xls, sheet_name=sheet_choice)
+        if not all(col in df.columns for col in ["Symbol", "Exchange"]):
+            st.error("Excel must contain 'Symbol' and 'Exchange'")
         else:
-            symbols = tickers_df["Symbol"].tolist()
+            symbols = df["Symbol"].dropna().unique().tolist()
             weeks, last_friday = get_last_n_weeks(6)
-            week_labels = [f"{m.strftime('%Y-%m-%d')} to {f.strftime('%Y-%m-%d')}" for m, f in weeks]
-
-            today = datetime.today()
             current_week_start = last_friday
-            last_data_close = today
-            if today.weekday() >= 5:
-                last_data_close = today - timedelta(days=(today.weekday() - 4))
-            current_week_label = f"{current_week_start.strftime('%Y-%m-%d')} to {last_data_close.strftime('%Y-%m-%d')}"
 
-            result = {}
-            for symbol in symbols:
-                closes = fetch_friday_closes(symbol, weeks)
-                current_close = fetch_current_week_close(symbol, current_week_start)
+            all_data = {}
+            for sym in symbols:
+                closes = fetch_friday_closes(sym, weeks)
+                current = fetch_current_week_close(sym, current_week_start)
                 if closes is not None and len(closes) == 6:
-                    result[symbol] = closes + [current_close]
+                    all_data[sym] = closes + [current]
                 else:
-                    st.warning(f"⚠️ Ticker {symbol}: Could not fetch 6 weeks of valid closing prices. Skipped.")
+                    st.warning(f"{sym}: insufficient data, skipped.")
 
-            if result:
-                all_labels = week_labels + [current_week_label]
-                price_df = pd.DataFrame(result).T
-                price_df.columns = all_labels
+            if all_data:
+                labels = [f"{m.strftime('%b %d')}→{f.strftime('%b %d')}" for m, f in weeks]
+                labels += [f"{current_week_start.strftime('%b %d')}→{datetime.today().strftime('%b %d')}"]
+                price_df = pd.DataFrame(all_data).T
+                price_df.columns = labels
                 price_df.index.name = "Symbol"
-                price_df.reset_index(inplace=True)
-                for col in all_labels:
+                price_df = price_df.reset_index()
+
+                for col in labels:
                     price_df[col] = pd.to_numeric(price_df[col], errors="coerce")
 
-                norm_df = price_df.set_index("Symbol")[all_labels]
+                norm_df = price_df.set_index("Symbol")[labels]
+                normed = norm_df.div(norm_df.iloc[:, 0], axis=0)
 
                 tabs = st.tabs([
-                    "Price Trend",
-                    "Normalized Performance",
-                    "Weekly % Price Change",
-                    "Ticker Scores (5 Strategies)",
+                    "📈 Price Trend",
+                    "📊 Normalized Performance",
+                    "📈 % Weekly Change",
+                    "🎯 Ticker Scores",
                     "📉 Max Drawdown",
-                    "📊 Volatility"
+                    "📉 Volatility"
                 ])
 
+                with tabs[0]:
+                    st.subheader("📈 Price Trend")
+                    fig = go.Figure()
+                    for sym in norm_df.index:
+                        fig.add_trace(go.Scatter(
+                            x=labels, y=norm_df.loc[sym],
+                            mode='lines+markers', name=sym,
+                            hovertemplate=f"<b>{sym}</b><br>%{{y}}"
+                        ))
+                    fig.update_layout(hovermode="closest", height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+
+                with tabs[1]:
+                    st.subheader("📊 Normalized Performance (Start = 100)")
+                    norm_chart = go.Figure()
+                    for sym in normed.index:
+                        norm_chart.add_trace(go.Scatter(
+                            x=labels, y=(normed.loc[sym] * 100),
+                            mode="lines", name=sym,
+                            hovertemplate=f"<b>{sym}</b><br>%{{y:.2f}}"
+                        ))
+                    norm_chart.update_layout(hovermode="closest", height=500)
+                    st.plotly_chart(norm_chart, use_container_width=True)
+
+                with tabs[2]:
+                    st.subheader("📈 Weekly % Change")
+                    weekly_pct = norm_df.pct_change(axis=1) * 100
+                    st.dataframe(weekly_pct.round(2), use_container_width=True)
+
                 with tabs[3]:
-                    st.subheader("Ticker Scores (5 Strategies)")
-                    scores_df = pd.DataFrame(index=norm_df.index)
-                    scores_df["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
-                    scores_df["Volatility"] = norm_df.std(axis=1)
-                    scores_df["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
-                    scores_df["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
-                    scores_df["All-Around"] = scores_df.sum(axis=1)
-                    st.dataframe(scores_df.round(2), use_container_width=True)
+                    st.subheader("🎯 Scores")
+                    scores = pd.DataFrame(index=norm_df.index)
+                    scores["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
+                    scores["Volatility"] = norm_df.std(axis=1)
+                    scores["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
+                    scores["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
+                    scores["All-Around"] = scores.sum(axis=1)
+                    st.dataframe(scores.round(2), use_container_width=True)
 
                 with tabs[4]:
-                    st.subheader("📉 Max Drawdown by Ticker")
-                    drawdowns = norm_df.apply(lambda row: calculate_max_drawdown(row.dropna()), axis=1)
-                    fig = go.Figure(go.Bar(
-                        x=drawdowns.index,
-                        y=drawdowns.values,
-                        marker_color='indianred'
-                    ))
-                    fig.update_layout(
-                        title="Max Drawdown (Normalized %)",
-                        xaxis_title="Ticker",
-                        yaxis_title="Drawdown (%)",
-                        height=500
-                    )
+                    st.subheader("📉 Max Drawdown")
+                    dd = norm_df.apply(lambda row: calculate_max_drawdown(row), axis=1)
+                    fig = go.Figure(go.Bar(x=dd.index, y=dd.values, marker_color="crimson"))
+                    fig.update_layout(title="Drawdown (%)", yaxis_title="Drawdown", height=500)
                     st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(drawdowns.rename("Max Drawdown (%)").round(2).reset_index(), use_container_width=True)
+                    st.dataframe(dd.rename("Drawdown (%)").round(2).reset_index(), use_container_width=True)
 
                 with tabs[5]:
-                    st.subheader("📊 Volatility Table (Standard Deviation of % Weekly Change)")
-                    weekly_pct_change = price_df.set_index("Symbol")[all_labels].pct_change(axis=1) * 100
-                    volatility_table = weekly_pct_change.std(axis=1).rename("Volatility (%)")
-                    st.dataframe(volatility_table.round(2).reset_index(), use_container_width=True)
+                    st.subheader("📉 Volatility (Standard Deviation of Weekly % Change)")
+                    volatility = norm_df.pct_change(axis=1).std(axis=1) * 100
+                    st.dataframe(volatility.rename("Volatility (%)").round(2).reset_index(), use_container_width=True)
