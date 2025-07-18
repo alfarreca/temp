@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import plotly.graph_objs as go
 from pathlib import Path
+import copy
 
 st.set_page_config(layout="wide")
 st.title("📈 Weekly Price Tracker (Fri–Fri Weeks + Current Week + Scoring)")
@@ -148,7 +149,7 @@ if uploaded_file:
 
     with tabs[2]:
         st.subheader("Normalized Chart")
-        st.plotly_chart(fig.copy(), use_container_width=True)
+        st.plotly_chart(copy.deepcopy(fig), use_container_width=True)
 
     with tabs[3]:
         st.subheader("Ticker Scores (5 Strategies)")
