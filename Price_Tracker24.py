@@ -100,7 +100,7 @@ if uploaded_file:
         xaxis_title="Week",
         yaxis_title="Normalized Price",
         height=500,
-        hovermode="x unified"
+        hovermode="closest"  # <- Only one line shown on hover
     )
     st.plotly_chart(fig, use_container_width=True)
 
