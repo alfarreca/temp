@@ -129,7 +129,9 @@ if uploaded_file:
             x=norm_df.columns,
             y=norm_df.loc[symbol],
             mode='lines+markers',
-            name=f"{symbol} ({(norm_df.loc[symbol].iloc[-1] - 100):+.1f}%)"
+            name=f"{symbol} ({(norm_df.loc[symbol].iloc[-1] - 100):+.1f}%)",
+            hoverinfo="text",
+            text=[f"{symbol}<br>{label}<br>{value:.2f}" for label, value in zip(norm_df.columns, norm_df.loc[symbol])]
         ))
     fig.update_layout(
         title="Normalized Price Performance (Start = 100)",
