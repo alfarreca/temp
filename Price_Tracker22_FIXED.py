@@ -1,7 +1,3 @@
-from pathlib import Path
-
-# Corrected Python script with fixes applied
-corrected_script = '''
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -154,9 +150,3 @@ if uploaded_file:
                     st.subheader("📉 Volatility (Standard Deviation of Weekly % Change)")
                     volatility = weekly_pct.std(axis=1).fillna(0)
                     st.dataframe(volatility.rename("Volatility (%)").round(2).reset_index(), use_container_width=True)
-'''
-
-file_path = "/mnt/data/Price_Tracker22_FIXED_v2.py"
-Path(file_path).write_text(corrected_script)
-
-file_path
