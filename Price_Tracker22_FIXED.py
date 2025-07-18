@@ -1,3 +1,7 @@
+from pathlib import Path
+
+# Corrected Python script with fixes applied
+corrected_script = '''
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -49,19 +53,6 @@ def calculate_max_drawdown(prices):
     drawdowns = (arr - running_max) / running_max
     return drawdowns.min() * 100
 
-@st.cache_data(show_spinner=False)
-def get_live_names_and_countries(symbols):
-    names, countries = {}, {}
-    for sym in symbols:
-        try:
-            info = yf.Ticker(sym).info
-            names[sym] = info.get("longName") or sym
-            countries[sym] = info.get("country") or ""
-        except:
-            names[sym] = sym
-            countries[sym] = ""
-    return names, countries
-
 if uploaded_file:
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
@@ -97,11 +88,11 @@ if uploaded_file:
                     price_df[col] = pd.to_numeric(price_df[col], errors="coerce")
 
                 norm_df = price_df.set_index("Symbol")[labels]
-                # Prevent divide-by-zero error in normalization
-                norm_df = norm_df.replace(0, np.nan)
-                normed = norm_df.div(norm_df.iloc[:, 0], axis=0)
+                safe_norm = norm_df.copy()
+                safe_norm = safe_norm.where(norm_df.iloc[:, 0] != 0)
+                normed = safe_norm.div(norm_df.iloc[:, 0], axis=0)
 
-                weekly_pct = norm_df.pct_change(axis=1) * 100  # Cached once
+                weekly_pct = norm_df.pct_change(axis=1) * 100
 
                 tabs = st.tabs([
                     "📈 Price Trend",
@@ -143,23 +134,29 @@ if uploaded_file:
                 with tabs[3]:
                     st.subheader("🎯 Ticker Scores")
                     scores = pd.DataFrame(index=norm_df.index)
-                    scores["Momentum"] = norm_df.iloc[:, -1] - norm_df.iloc[:, -2]
-                    scores["Volatility"] = norm_df.std(axis=1)
-                    scores["Trend"] = norm_df.apply(lambda row: sum(row.diff() > 0), axis=1)
-                    scores["Total Return"] = norm_df.apply(lambda row: row.iloc[-1] - row.iloc[0], axis=1)
+                    scores["Momentum"] = (norm_df.iloc[:, -1] - norm_df.iloc[:, -2]).fillna(0)
+                    scores["Volatility"] = norm_df.std(axis=1).fillna(0)
+                    scores["Trend"] = norm_df.apply(lambda row: sum(row.diff().fillna(0) > 0), axis=1)
+                    scores["Total Return"] = (norm_df.iloc[:, -1] - norm_df.iloc[:, 0]).fillna(0)
                     scores["All-Around"] = scores.sum(axis=1)
                     st.dataframe(scores.round(2).sort_values("All-Around", ascending=False), use_container_width=True)
 
                 with tabs[4]:
                     st.subheader("📉 Max Drawdown")
-                    dd = norm_df.apply(calculate_max_drawdown, axis=1)
-                    fig = go.Figure(go.Bar(x=dd.index, y=dd.values, marker_color="crimson",
+                    drawdowns = norm_df.apply(lambda row: calculate_max_drawdown(row.dropna()), axis=1).dropna()
+                    fig = go.Figure(go.Bar(x=drawdowns.index, y=drawdowns.values, marker_color="crimson",
                                            hovertemplate="%{x}<br>Drawdown: %{y:.2f}%"))
                     fig.update_layout(title="Drawdown (%)", yaxis_title="Drawdown", height=500)
                     st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(dd.rename("Drawdown (%)").round(2).reset_index(), use_container_width=True)
+                    st.dataframe(drawdowns.rename("Drawdown (%)").round(2).reset_index(), use_container_width=True)
 
                 with tabs[5]:
                     st.subheader("📉 Volatility (Standard Deviation of Weekly % Change)")
-                    volatility = weekly_pct.std(axis=1)
+                    volatility = weekly_pct.std(axis=1).fillna(0)
                     st.dataframe(volatility.rename("Volatility (%)").round(2).reset_index(), use_container_width=True)
+'''
+
+file_path = "/mnt/data/Price_Tracker22_FIXED_v2.py"
+Path(file_path).write_text(corrected_script)
+
+file_path
