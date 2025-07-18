@@ -78,7 +78,11 @@ def get_live_names_and_countries(symbols):
     return names, countries
 
 if uploaded_file:
-    df = pd.read_excel(uploaded_file)
+    # Let user pick the sheet
+    xls = pd.ExcelFile(uploaded_file)
+    sheet_name = st.selectbox("Select sheet to analyze", xls.sheet_names)
+    df = pd.read_excel(xls, sheet_name=sheet_name)
+
     symbols = df["Symbol"].dropna().unique().tolist()
 
     weeks, last_friday = get_last_n_weeks(6)
