@@ -97,7 +97,13 @@ if uploaded_file:
 
     st.subheader("Weekly % Price Change")
     pct_df = price_df.copy()
-    pct_df[all_labels] = pct_df[all_labels].pct_change(axis=1) * 100
+    # Correct % change calculation with manual last-week-to-yesterday column
+    pct_df[all_labels[:-1]] = pct_df[all_labels[:-1]].pct_change(axis=1) * 100
+    last_week_label = all_labels[-2]
+    current_label = all_labels[-1]
+    last_friday_close = price_df[last_week_label]
+    yesterday_close = price_df[current_label]
+    pct_df[current_label] = ((yesterday_close - last_friday_close) / last_friday_close) * 100
     st.dataframe(pct_df.round(2), use_container_width=True)
 
     st.subheader("Normalized Price Performance (Start = 100)")
