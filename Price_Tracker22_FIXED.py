@@ -90,6 +90,13 @@ if uploaded_file:
 
                 weekly_pct = norm_df.pct_change(axis=1) * 100
 
+                # 🧼 Clean-up: Drop last column if no change or bad date range
+                if weekly_pct.columns[-1].split("→")[0] == weekly_pct.columns[-1].split("→")[1] or weekly_pct.iloc[:, -1].nunique() <= 1:
+                    weekly_pct = weekly_pct.iloc[:, :-1]
+                    norm_df = norm_df.iloc[:, :-1]
+                    normed = normed.iloc[:, :-1]
+                    labels = labels[:-1]
+
                 tabs = st.tabs([
                     "📈 Price Trend",
                     "📊 Normalized Performance",
@@ -151,7 +158,7 @@ if uploaded_file:
 
                 with tabs[2]:
                     st.subheader("📈 Weekly % Change")
-                    st.dataframe(weekly_pct.round(2), use_container_width=True)
+                    st.dataframe(weekly_pct.round(2).reset_index(), use_container_width=True)
 
                 with tabs[3]:
                     st.subheader("🎯 Ticker Scores")
