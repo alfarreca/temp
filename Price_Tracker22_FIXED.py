@@ -90,7 +90,7 @@ if uploaded_file:
 
                 weekly_pct = norm_df.pct_change(axis=1) * 100
 
-                # 🧼 Clean-up: Drop last column if no change or bad date range
+                # Clean-up: Drop last column if no change or bad range
                 if weekly_pct.columns[-1].split("→")[0] == weekly_pct.columns[-1].split("→")[1] or weekly_pct.iloc[:, -1].nunique() <= 1:
                     weekly_pct = weekly_pct.iloc[:, :-1]
                     norm_df = norm_df.iloc[:, :-1]
@@ -138,12 +138,12 @@ if uploaded_file:
                     normed_pct_change = norm_df.divide(start_values, axis=0) * 100
                     pct_change_from_start = norm_df.subtract(start_values, axis=0).divide(start_values, axis=0) * 100
 
-                    for sym in normed.index:
+                    for sym in norm_df.index:
                         change = total_pct_change[sym]
                         label_name = f"{sym} ({change:+.2f}%)"
                         norm_chart.add_trace(go.Scatter(
                             x=labels,
-                            y=(normed_pct_change.loc[sym]),
+                            y=normed_pct_change.loc[sym],
                             customdata=pct_change_from_start.loc[sym].values.reshape(-1, 1),
                             mode="lines",
                             name=label_name,
@@ -153,7 +153,7 @@ if uploaded_file:
                                 + "Change: %{customdata[0]:.2f}%"
                             )
                         ))
-                    norm_chart.update_layout(hovermode="x unified", height=500)
+                    norm_chart.update_layout(hovermode="closest", height=500)
                     st.plotly_chart(norm_chart, use_container_width=True)
 
                 with tabs[2]:
