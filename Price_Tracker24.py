@@ -118,7 +118,23 @@ if uploaded_file:
     norm_df = price_df.set_index("Symbol")
     norm_df = norm_df[all_labels].div(norm_df[all_labels[0]], axis=0) * 100
     norm_df = norm_df.dropna(thresh=3)  # allow some NaNs
-    st.line_chart(norm_df.T)
+
+    fig = go.Figure()
+    for symbol in norm_df.index:
+        fig.add_trace(go.Scatter(
+            x=norm_df.columns,
+            y=norm_df.loc[symbol],
+            mode='lines+markers',
+            name=f"{symbol} ({(norm_df.loc[symbol].iloc[-1] - 100):+.1f}%)"
+        ))
+    fig.update_layout(
+        title="Normalized Price Performance (Start = 100)",
+        xaxis_title="Week",
+        yaxis_title="Normalized Price",
+        height=500,
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     tabs = st.tabs(["Raw Prices", "% Change Table", "Normalized Chart", "Ticker Scores", "Drawdowns", "Volatility"])
 
@@ -132,7 +148,7 @@ if uploaded_file:
 
     with tabs[2]:
         st.subheader("Normalized Chart")
-        st.line_chart(norm_df.T)
+        st.plotly_chart(fig, use_container_width=True)
 
     with tabs[3]:
         st.subheader("Ticker Scores (5 Strategies)")
@@ -147,18 +163,18 @@ if uploaded_file:
     with tabs[4]:
         st.subheader("📉 Max Drawdown by Ticker")
         drawdowns = norm_df.apply(lambda row: calculate_max_drawdown(row.dropna()), axis=1)
-        fig = go.Figure(go.Bar(
+        fig_drawdown = go.Figure(go.Bar(
             x=drawdowns.index,
             y=drawdowns.values,
             marker_color='indianred'
         ))
-        fig.update_layout(
+        fig_drawdown.update_layout(
             title="Max Drawdown (Normalized %)",
             xaxis_title="Ticker",
             yaxis_title="Drawdown (%)",
             height=500
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_drawdown, use_container_width=True)
         st.dataframe(drawdowns.rename("Max Drawdown (%)").round(2).reset_index(), use_container_width=True)
 
     with tabs[5]:
