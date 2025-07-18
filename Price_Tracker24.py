@@ -36,11 +36,10 @@ def fetch_friday_closes(symbol, weeks):
     for monday, friday in weeks:
         week_data = data.loc[(data.index >= pd.Timestamp(monday)) & (data.index <= pd.Timestamp(friday))]
         friday_close = week_data.loc[week_data.index.weekday == 4, "Close"]
-        if not friday_close.empty:
+        if not friday_close.dropna().empty:
             closes.append(float(round(friday_close.dropna().iloc[-1], 3)))
-        elif not week_data.empty and "Close" in week_data.columns:
-            non_nan_closes = week_data["Close"].dropna()
-            closes.append(float(round(non_nan_closes.iloc[-1], 3)) if not non_nan_closes.empty else np.nan)
+        elif not week_data["Close"].dropna().empty:
+            closes.append(float(round(week_data["Close"].dropna().iloc[-1], 3)))
         else:
             closes.append(np.nan)
     return closes
