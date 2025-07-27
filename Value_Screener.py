@@ -27,6 +27,12 @@ if universe_df.empty:
     st.stop()
 
 # ------------------------
+# Show raw data for validation
+# ------------------------
+st.subheader("🗃️ Raw Ticker Universe (Loaded from Excel)")
+st.dataframe(universe_df, use_container_width=True)
+
+# ------------------------
 # Fetch financial data using yfinance
 # ------------------------
 @st.cache_data(show_spinner=True)
@@ -75,6 +81,7 @@ filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
 # ------------------------
 # Display table
 # ------------------------
+st.subheader("📊 Screened Results (Low P/B + Positive ROE)")
 st.dataframe(
     filtered_df[["Ticker", "Company", "Sector", "P/B Ratio", "ROE (TTM)", "Debt/Equity", "Dividend Yield", "Yahoo Finance", "EDGAR Filings"]],
     use_container_width=True,
