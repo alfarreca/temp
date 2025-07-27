@@ -39,13 +39,16 @@ if uploaded_file:
     df = load_data(uploaded_file)
     screener_mode = st.selectbox("Select Screener Mode", ["Value", "Growth", "Dividend", "Value + Dividend"])
 
-    # Rename 'Symbol' to 'Ticker' for consistency
-    if 'Symbol' in df.columns:
-        df = df.rename(columns={'Symbol': 'Ticker'})
+    # Standardize column names
+    df = df.rename(columns={
+        'Symbol': 'Ticker',
+        'Exchange': 'Company',
+        'Name': 'Company_Long'  # Optional - keeping both name formats
+    })
 
     # Clean up ticker names
     if 'Ticker' not in df.columns:
-        st.error("❌ 'Symbol' or 'Ticker' column is required in uploaded file.")
+        st.error("❌ 'Symbol' column is required in uploaded file.")
         st.stop()
     df = df.dropna(subset=['Ticker'])
     df['Ticker'] = df['Ticker'].astype(str).str.upper()
@@ -63,9 +66,12 @@ if uploaded_file:
                 'Dividend Yield': info.get('dividendYield') * 100 if info.get('dividendYield') else None,
                 'Payout Ratio': info.get('payoutRatio'),
                 'Yahoo Finance': f'https://finance.yahoo.com/quote/{ticker}',
-                'EDGAR Filings': f'https://www.sec.gov/edgar/browse/?CIK={ticker}'
+                'EDGAR Filings': f'https://www.sec.gov/edgar/browse/?CIK={ticker}',
+                'EPS Growth': info.get('earningsGrowth', 0),  # Added for Growth mode
+                'Revenue Growth': info.get('revenueGrowth', 0)  # Added for Growth mode
             }
-        except:
+        except Exception as e:
+            st.warning(f"Failed to fetch {ticker}: {str(e)}")
             return {}
 
     progress = st.progress(0)
@@ -114,10 +120,19 @@ if uploaded_file:
 
     # Final table
     st.subheader("📌 Filtered Results")
-    preferred_columns = ['Ticker', 'Company', 'Sector', 'P/B Ratio', 'ROE (TTM)', 'Debt/Equity',
+    preferred_columns = ['Ticker', 'Company', 'Sector', 'Industry', 'P/B Ratio', 'ROE (TTM)', 'Debt/Equity',
                          'Dividend Yield', 'Payout Ratio', 'Yahoo Finance', 'EDGAR Filings']
     display_columns = [col for col in preferred_columns if col in filtered.columns]
     st.dataframe(filtered[display_columns])
+
+    # Download button
+    csv = filtered[display_columns].to_csv(index=False)
+    st.download_button(
+        label="📥 Download Results as CSV",
+        data=csv,
+        file_name=f"{screener_mode}_screener_results.csv",
+        mime="text/csv"
+    )
 
     # Charts in 2-column layout
     col1, col2 = st.columns(2)
@@ -128,7 +143,9 @@ if uploaded_file:
 
     with col2:
         st.write("📈 P/B vs ROE")
-        fig = px.scatter(filtered, x='P/B Ratio', y='ROE (TTM)', hover_name='Ticker', size_max=10)
+        fig = px.scatter(filtered, x='P/B Ratio', y='ROE (TTM)', hover_name='Ticker', 
+                        color='Sector' if 'Sector' in filtered.columns else None,
+                        size_max=10)
         st.plotly_chart(fig, use_container_width=True)
 
     with col1:
