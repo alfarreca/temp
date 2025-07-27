@@ -114,8 +114,10 @@ if uploaded_file:
 
     # Final table
     st.subheader("📌 Filtered Results")
-    st.dataframe(filtered[['Ticker', 'Company', 'Sector', 'P/B Ratio', 'ROE (TTM)', 'Debt/Equity',
-                           'Dividend Yield', 'Payout Ratio', 'Yahoo Finance', 'EDGAR Filings']])
+    preferred_columns = ['Ticker', 'Company', 'Sector', 'P/B Ratio', 'ROE (TTM)', 'Debt/Equity',
+                         'Dividend Yield', 'Payout Ratio', 'Yahoo Finance', 'EDGAR Filings']
+    display_columns = [col for col in preferred_columns if col in filtered.columns]
+    st.dataframe(filtered[display_columns])
 
     # Charts in 2-column layout
     col1, col2 = st.columns(2)
