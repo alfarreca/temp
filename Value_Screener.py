@@ -29,7 +29,7 @@ else:
 # ------------------------
 # Sidebar: Screener mode selection
 # ------------------------
-screener_mode = st.sidebar.selectbox("Select Screener Mode", ["Value", "Growth", "Dividend"])
+screener_mode = st.sidebar.selectbox("Select Screener Mode", ["Value", "Growth", "Dividend", "Value + Dividend"])
 
 # ------------------------
 # Show raw data with search
@@ -56,6 +56,7 @@ def fetch_metrics(tickers):
                 "ROE (TTM)": info.get("returnOnEquity"),
                 "Debt/Equity": info.get("debtToEquity"),
                 "Dividend Yield": info.get("dividendYield"),
+                "Payout Ratio": info.get("payoutRatio"),
                 "Revenue Growth (YoY)": info.get("revenueGrowth"),
                 "EPS Growth (YoY)": info.get("earningsQuarterlyGrowth"),
                 "Yahoo Finance": f"https://finance.yahoo.com/quote/{ticker}",
@@ -71,7 +72,7 @@ with st.spinner("Fetching live financials..."):
     financials_df = fetch_metrics(sample_tickers)
 
 # ------------------------
-# Clean and filter based on mode
+# Screener Modes Logic
 # ------------------------
 if screener_mode == "Value":
     financials_df = financials_df.dropna(subset=["P/B Ratio", "ROE (TTM)", "Debt/Equity"])
@@ -85,11 +86,10 @@ if screener_mode == "Value":
     with st.expander("ℹ️ Column Definitions - Value"):
         st.markdown("""
         - **P/B Ratio**: Price-to-Book ratio — how expensive the stock is vs. net asset value  
-        - **ROE (TTM)**: Return on Equity over the trailing twelve months — a profitability measure  
-        - **Debt/Equity**: A leverage ratio — how much debt the company uses to finance assets  
-        - **Dividend Yield**: Annual dividend / current price — cash return to shareholders  
-        - **Yahoo Finance**: Direct link to the company's stock page on Yahoo  
-        - **EDGAR Filings**: Direct link to the company's SEC filings (10-Ks, 10-Qs, etc.)  
+        - **ROE (TTM)**: Return on Equity — a profitability measure  
+        - **Debt/Equity**: Leverage ratio — how much debt is used to finance assets  
+        - **Dividend Yield**: Dividend / Price  
+        - **Yahoo Finance** / **EDGAR Filings**: External links  
         """)
 
     st.dataframe(
@@ -109,10 +109,9 @@ elif screener_mode == "Growth":
     st.subheader("📈 Growth Screener Results")
     with st.expander("ℹ️ Column Definitions - Growth"):
         st.markdown("""
-        - **Revenue Growth (YoY)**: Year-over-year sales/revenue growth  
-        - **EPS Growth (YoY)**: Year-over-year earnings-per-share growth  
-        - **Yahoo Finance**: Direct link to the company's stock page on Yahoo  
-        - **EDGAR Filings**: Direct link to the company's SEC filings (10-Ks, 10-Qs, etc.)  
+        - **Revenue Growth (YoY)**: Annual sales growth  
+        - **EPS Growth (YoY)**: Annual earnings growth  
+        - **Yahoo Finance** / **EDGAR Filings**: External links  
         """)
 
     st.dataframe(
@@ -125,6 +124,7 @@ elif screener_mode == "Dividend":
     financials_df = financials_df.dropna(subset=["Dividend Yield", "ROE (TTM)"])
     financials_df = financials_df[financials_df["Dividend Yield"] > 0.03]
     financials_df = financials_df[financials_df["ROE (TTM)"] > 0]
+    financials_df = financials_df[(financials_df["Payout Ratio"].isna()) | (financials_df["Payout Ratio"] < 0.7)]
     sectors = financials_df["Sector"].dropna().unique().tolist()
     selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
     filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
@@ -132,14 +132,40 @@ elif screener_mode == "Dividend":
     st.subheader("💰 Dividend Screener Results")
     with st.expander("ℹ️ Column Definitions - Dividend"):
         st.markdown("""
-        - **Dividend Yield**: Annual dividend / current share price  
-        - **ROE (TTM)**: Return on Equity — a measure of profitability  
-        - **Yahoo Finance**: Direct link to the company's stock page on Yahoo  
-        - **EDGAR Filings**: SEC reports where you can check payout history  
+        - **Dividend Yield**: Annual dividend / price  
+        - **ROE (TTM)**: Profitability metric  
+        - **Payout Ratio**: Dividend payout / earnings (if available) — < 70% preferred  
+        - **Yahoo Finance** / **EDGAR Filings**: External links  
         """)
 
     st.dataframe(
-        filtered_df[["Ticker", "Company", "Sector", "Dividend Yield", "ROE (TTM)", "Yahoo Finance", "EDGAR Filings"]],
+        filtered_df[["Ticker", "Company", "Sector", "Dividend Yield", "ROE (TTM)", "Payout Ratio", "Yahoo Finance", "EDGAR Filings"]],
+        use_container_width=True,
+        hide_index=True
+    )
+
+elif screener_mode == "Value + Dividend":
+    financials_df = financials_df.dropna(subset=["P/B Ratio", "ROE (TTM)", "Dividend Yield"])
+    financials_df = financials_df[financials_df["P/B Ratio"] < 1.2]
+    financials_df = financials_df[financials_df["ROE (TTM)"] > 0]
+    financials_df = financials_df[financials_df["Dividend Yield"] > 0.03]
+    financials_df = financials_df[(financials_df["Payout Ratio"].isna()) | (financials_df["Payout Ratio"] < 0.7)]
+    sectors = financials_df["Sector"].dropna().unique().tolist()
+    selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
+    filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
+
+    st.subheader("📊 Value + Dividend Screener Results")
+    with st.expander("ℹ️ Column Definitions - Value + Dividend"):
+        st.markdown("""
+        - **P/B Ratio**: Undervalued vs. net assets  
+        - **ROE (TTM)**: Profitability  
+        - **Dividend Yield**: Cash yield to shareholders  
+        - **Payout Ratio**: Payout safety signal  
+        - **Yahoo Finance** / **EDGAR Filings**: External links  
+        """)
+
+    st.dataframe(
+        filtered_df[["Ticker", "Company", "Sector", "P/B Ratio", "ROE (TTM)", "Dividend Yield", "Payout Ratio", "Yahoo Finance", "EDGAR Filings"]],
         use_container_width=True,
         hide_index=True
     )
@@ -158,6 +184,6 @@ excel_data = convert_df_to_excel(filtered_df)
 st.download_button(
     label="📥 Download Screener Data (XLSX)",
     data=excel_data,
-    file_name=f"us_{screener_mode.lower()}_screener.xlsx",
+    file_name=f"us_{screener_mode.lower().replace(' + ', '_')}_screener.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ) 
