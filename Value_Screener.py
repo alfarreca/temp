@@ -29,7 +29,7 @@ else:
 # ------------------------
 # Sidebar: Screener mode selection
 # ------------------------
-screener_mode = st.sidebar.selectbox("Select Screener Mode", ["Value", "Growth"])
+screener_mode = st.sidebar.selectbox("Select Screener Mode", ["Value", "Growth", "Dividend"])
 
 # ------------------------
 # Show raw data with search
@@ -117,6 +117,29 @@ elif screener_mode == "Growth":
 
     st.dataframe(
         filtered_df[["Ticker", "Company", "Sector", "Revenue Growth (YoY)", "EPS Growth (YoY)", "Yahoo Finance", "EDGAR Filings"]],
+        use_container_width=True,
+        hide_index=True
+    )
+
+elif screener_mode == "Dividend":
+    financials_df = financials_df.dropna(subset=["Dividend Yield", "ROE (TTM)"])
+    financials_df = financials_df[financials_df["Dividend Yield"] > 0.03]
+    financials_df = financials_df[financials_df["ROE (TTM)"] > 0]
+    sectors = financials_df["Sector"].dropna().unique().tolist()
+    selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
+    filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
+
+    st.subheader("💰 Dividend Screener Results")
+    with st.expander("ℹ️ Column Definitions - Dividend"):
+        st.markdown("""
+        - **Dividend Yield**: Annual dividend / current share price  
+        - **ROE (TTM)**: Return on Equity — a measure of profitability  
+        - **Yahoo Finance**: Direct link to the company's stock page on Yahoo  
+        - **EDGAR Filings**: SEC reports where you can check payout history  
+        """)
+
+    st.dataframe(
+        filtered_df[["Ticker", "Company", "Sector", "Dividend Yield", "ROE (TTM)", "Yahoo Finance", "EDGAR Filings"]],
         use_container_width=True,
         hide_index=True
     )
