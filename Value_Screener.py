@@ -10,16 +10,15 @@ st.set_page_config(page_title="📉 US Value Stock Screener", layout="wide")
 st.title("📉 US Value Stock Screener (Low P/B, High ROE)")
 
 # ------------------------
-# Load universe (S&P 1500 sample)
+# Load universe (Russell 3000 Excel)
 # ------------------------
 @st.cache_data
 def load_universe():
-    url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
-    df = pd.read_csv(url)
+    df = pd.read_excel("Russell 3000.xlsx")
+    df = df.rename(columns={"Symbol": "Ticker"})
     return df
 
 universe_df = load_universe()
-universe_df = universe_df.rename(columns={"Symbol": "Ticker", "Name": "Company"})
 
 # ------------------------
 # Fetch financial data using yfinance
@@ -46,7 +45,9 @@ def fetch_metrics(tickers):
             continue
     return pd.DataFrame(data)
 
-sample_tickers = universe_df['Ticker'].unique().tolist()[:100]  # Limit to first 100 for demo
+# You can adjust the number of tickers here (500 for performance, or full universe)
+sample_tickers = universe_df['Ticker'].unique().tolist()[:500]
+
 with st.spinner("Fetching live financials..."):
     financials_df = fetch_metrics(sample_tickers)
 
