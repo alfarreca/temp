@@ -11,19 +11,19 @@ st.set_page_config(page_title="📉 US Multi-Mode Stock Screener", layout="wide"
 st.title("📉 US Multi-Mode Stock Screener")
 
 # ------------------------
-# Load universe (Russell 3000 Cleaned Excel)
+# Upload or load universe file
 # ------------------------
 @st.cache_data
-def load_universe():
-    file_path = "Russell_3000_Cleaned.xlsx"
-    if not os.path.exists(file_path):
-        st.error(f"File '{file_path}' not found. Please upload it to your repo.")
-        return pd.DataFrame()
-    df = pd.read_excel(file_path)
+def load_universe_from_file(uploaded_file):
+    df = pd.read_excel(uploaded_file)
     return df
 
-universe_df = load_universe()
-if universe_df.empty:
+uploaded_file = st.sidebar.file_uploader("📁 Upload Russell 3000 Excel File", type=["xlsx"])
+
+if uploaded_file:
+    universe_df = load_universe_from_file(uploaded_file)
+else:
+    st.warning("Please upload your Russell_3000_Cleaned.xlsx file to begin.")
     st.stop()
 
 # ------------------------
@@ -34,7 +34,7 @@ screener_mode = st.sidebar.selectbox("Select Screener Mode", ["Value", "Growth"]
 # ------------------------
 # Show raw data with search
 # ------------------------
-st.subheader("🗃️ Raw Ticker Universe (Loaded from Excel)")
+st.subheader("🗃️ Raw Ticker Universe (Loaded from Upload)")
 search_term = st.text_input("Search company or ticker:").upper()
 filtered_universe_df = universe_df[universe_df.apply(lambda row: search_term in row['Ticker'] or search_term in row['Company'].upper(), axis=1)] if search_term else universe_df
 st.dataframe(filtered_universe_df, use_container_width=True)
