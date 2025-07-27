@@ -11,16 +11,15 @@ st.set_page_config(page_title="📉 US Value Stock Screener", layout="wide")
 st.title("📉 US Value Stock Screener (Low P/B, High ROE)")
 
 # ------------------------
-# Load universe (Russell 3000 Excel)
+# Load universe (Russell 3000 Cleaned Excel)
 # ------------------------
 @st.cache_data
 def load_universe():
-    file_path = "Russell 3000.xlsx"
+    file_path = "Russell_3000_Cleaned.xlsx"
     if not os.path.exists(file_path):
         st.error(f"File '{file_path}' not found. Please upload it to your repo.")
         return pd.DataFrame()
     df = pd.read_excel(file_path)
-    df = df.rename(columns={"Symbol": "Ticker"})
     return df
 
 universe_df = load_universe()
