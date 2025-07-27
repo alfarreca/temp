@@ -27,10 +27,12 @@ if universe_df.empty:
     st.stop()
 
 # ------------------------
-# Show raw data for validation
+# Show raw data for validation with search
 # ------------------------
 st.subheader("🗃️ Raw Ticker Universe (Loaded from Excel)")
-st.dataframe(universe_df, use_container_width=True)
+search_term = st.text_input("Search company or ticker:").upper()
+filtered_universe_df = universe_df[universe_df.apply(lambda row: search_term in row['Ticker'] or search_term in row['Company'].upper(), axis=1)] if search_term else universe_df
+st.dataframe(filtered_universe_df, use_container_width=True)
 
 # ------------------------
 # Fetch financial data using yfinance
@@ -82,6 +84,17 @@ filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
 # Display table
 # ------------------------
 st.subheader("📊 Screened Results (Low P/B + Positive ROE)")
+
+with st.expander("ℹ️ Column Definitions"):
+    st.markdown("""
+    - **P/B Ratio**: Price-to-Book ratio — how expensive the stock is vs. net asset value  
+    - **ROE (TTM)**: Return on Equity over the trailing twelve months — a profitability measure  
+    - **Debt/Equity**: A leverage ratio — how much debt the company uses to finance assets  
+    - **Dividend Yield**: Annual dividend / current price — cash return to shareholders  
+    - **Yahoo Finance**: Direct link to the company's stock page on Yahoo  
+    - **EDGAR Filings**: Direct link to the company's SEC filings (10-Ks, 10-Qs, etc.)  
+    """)
+
 st.dataframe(
     filtered_df[["Ticker", "Company", "Sector", "P/B Ratio", "ROE (TTM)", "Debt/Equity", "Dividend Yield", "Yahoo Finance", "EDGAR Filings"]],
     use_container_width=True,
