@@ -39,7 +39,14 @@ if uploaded_file:
     df = load_data(uploaded_file)
     screener_mode = st.selectbox("Select Screener Mode", ["Value", "Growth", "Dividend", "Value + Dividend"])
 
+    # Rename 'Symbol' to 'Ticker' for consistency
+    if 'Symbol' in df.columns:
+        df = df.rename(columns={'Symbol': 'Ticker'})
+
     # Clean up ticker names
+    if 'Ticker' not in df.columns:
+        st.error("❌ 'Symbol' or 'Ticker' column is required in uploaded file.")
+        st.stop()
     df = df.dropna(subset=['Ticker'])
     df['Ticker'] = df['Ticker'].astype(str).str.upper()
 
@@ -87,10 +94,11 @@ if uploaded_file:
                             ((final_df['Payout Ratio'].isna()) | (final_df['Payout Ratio'] < 0.7))]
 
     # Sector filter
-    sector_options = filtered['Sector'].dropna().unique()
-    selected_sectors = st.multiselect("Filter by Sector", sector_options)
-    if selected_sectors:
-        filtered = filtered[filtered['Sector'].isin(selected_sectors)]
+    if 'Sector' in filtered.columns:
+        sector_options = filtered['Sector'].dropna().unique()
+        selected_sectors = st.multiselect("Filter by Sector", sector_options)
+        if selected_sectors:
+            filtered = filtered[filtered['Sector'].isin(selected_sectors)]
 
     # Summary box
     st.subheader("📋 Screener Summary")
@@ -112,8 +120,9 @@ if uploaded_file:
     # Charts in 2-column layout
     col1, col2 = st.columns(2)
     with col1:
-        st.write("📊 Sector Distribution")
-        st.bar_chart(filtered['Sector'].value_counts())
+        if 'Sector' in filtered.columns:
+            st.write("📊 Sector Distribution")
+            st.bar_chart(filtered['Sector'].value_counts())
 
     with col2:
         st.write("📈 P/B vs ROE")
