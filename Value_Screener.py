@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+from io import BytesIO
 
 # ------------------------
 # Settings
@@ -74,10 +75,19 @@ st.dataframe(
 )
 
 # ------------------------
-# Download option
+# Download option (fixed)
 # ------------------------
+def convert_df_to_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    return output.getvalue()
+
+excel_data = convert_df_to_excel(filtered_df)
+
 st.download_button(
     label="📥 Download Screener Data (XLSX)",
-    data=filtered_df.to_excel(index=False, engine='openpyxl'),
-    file_name="us_value_screener.xlsx"
-)
+    data=excel_data,
+    file_name="us_value_screener.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+) 
