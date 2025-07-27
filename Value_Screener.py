@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from io import BytesIO
+import os
 
 # ------------------------
 # Settings
@@ -14,11 +15,17 @@ st.title("📉 US Value Stock Screener (Low P/B, High ROE)")
 # ------------------------
 @st.cache_data
 def load_universe():
-    df = pd.read_excel("Russell 3000.xlsx")
+    file_path = "Russell 3000.xlsx"
+    if not os.path.exists(file_path):
+        st.error(f"File '{file_path}' not found. Please upload it to your repo.")
+        return pd.DataFrame()
+    df = pd.read_excel(file_path)
     df = df.rename(columns={"Symbol": "Ticker"})
     return df
 
 universe_df = load_universe()
+if universe_df.empty:
+    st.stop()
 
 # ------------------------
 # Fetch financial data using yfinance
