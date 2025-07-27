@@ -9,6 +9,41 @@ import os
 st.set_page_config(page_title="📉 US Multi-Mode Stock Screener", layout="wide")
 st.title("📉 US Multi-Mode Stock Screener")
 
+with st.expander("ℹ️ Screener Modes & Metrics Explained"):
+    st.markdown("""
+    ### 🧭 Screener Modes
+
+    **1. Value Mode**  
+    - P/B Ratio < 1.2 → undervalued relative to net assets  
+    - ROE > 0 → profitable  
+
+    **2. Growth Mode**  
+    - Revenue Growth YoY > 10%  
+    - EPS Growth YoY > 10%  
+
+    **3. Dividend Mode**  
+    - Dividend Yield > 3%  
+    - ROE > 0 → profitable  
+    - Payout Ratio < 70% or not available  
+
+    **4. Value + Dividend Mode**  
+    - Combines filters from Value and Dividend modes  
+
+    ### 📊 Key Metrics
+
+    | Metric | Description |
+    |--------|-------------|
+    | **P/B Ratio** | Price-to-Book ratio – how expensive the stock is vs. net asset value |
+    | **ROE (TTM)** | Return on Equity – profitability measure |
+    | **Debt/Equity** | Leverage ratio – debt used to finance assets |
+    | **Dividend Yield** | Annual dividend ÷ price – cash return to shareholders |
+    | **Payout Ratio** | Dividend ÷ earnings – sustainability of dividends |
+    | **Revenue Growth** | YoY revenue expansion |
+    | **EPS Growth** | YoY earnings expansion |
+    | **Yahoo Finance** | Direct link to stock page |
+    | **EDGAR Filings** | Direct link to SEC filings |
+    """)
+
 @st.cache_data
 def load_universe_from_file(uploaded_file):
     df = pd.read_excel(uploaded_file)
@@ -72,7 +107,6 @@ filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
 
 st.subheader(f"📊 {screener_mode} Screener Results")
 
-# Summary Stats
 st.markdown("### 📌 Screener Summary")
 st.write(f"**Total Stocks:** {len(filtered_df)}")
 col1, col2, col3 = st.columns(3)
@@ -80,7 +114,6 @@ col1.metric("Avg. P/B Ratio", f"{filtered_df['P/B Ratio'].mean():.2f}" if 'P/B R
 col2.metric("Avg. ROE", f"{filtered_df['ROE (TTM)'].mean():.2%}" if 'ROE (TTM)' in filtered_df else "N/A")
 col3.metric("Avg. Dividend Yield", f"{filtered_df['Dividend Yield'].mean():.2%}" if 'Dividend Yield' in filtered_df else "N/A")
 
-# Charts
 st.markdown("### 📈 Sector Breakdown")
 if not filtered_df.empty:
     sector_counts = filtered_df['Sector'].value_counts()
@@ -110,9 +143,6 @@ if not filtered_df.empty:
 st.markdown("### 🧾 Screener Table")
 st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
-# ------------------------
-# Download option
-# ------------------------
 def convert_df_to_excel(df):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
