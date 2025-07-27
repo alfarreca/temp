@@ -2,17 +2,13 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from io import BytesIO
+import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 
-# ------------------------
-# Settings
-# ------------------------
 st.set_page_config(page_title="📉 US Multi-Mode Stock Screener", layout="wide")
 st.title("📉 US Multi-Mode Stock Screener")
 
-# ------------------------
-# Upload or load universe file
-# ------------------------
 @st.cache_data
 def load_universe_from_file(uploaded_file):
     df = pd.read_excel(uploaded_file)
@@ -26,22 +22,13 @@ else:
     st.warning("Please upload your Russell_3000_Cleaned.xlsx file to begin.")
     st.stop()
 
-# ------------------------
-# Sidebar: Screener mode selection
-# ------------------------
 screener_mode = st.sidebar.selectbox("Select Screener Mode", ["Value", "Growth", "Dividend", "Value + Dividend"])
 
-# ------------------------
-# Show raw data with search
-# ------------------------
 st.subheader("🗃️ Raw Ticker Universe (Loaded from Upload)")
 search_term = st.text_input("Search company or ticker:").upper()
 filtered_universe_df = universe_df[universe_df.apply(lambda row: search_term in row['Ticker'] or search_term in row['Company'].upper(), axis=1)] if search_term else universe_df
 st.dataframe(filtered_universe_df, use_container_width=True)
 
-# ------------------------
-# Fetch financial data using yfinance
-# ------------------------
 @st.cache_data(show_spinner=True)
 def fetch_metrics(tickers):
     data = []
@@ -60,7 +47,7 @@ def fetch_metrics(tickers):
                 "Revenue Growth (YoY)": info.get("revenueGrowth"),
                 "EPS Growth (YoY)": info.get("earningsQuarterlyGrowth"),
                 "Yahoo Finance": f"https://finance.yahoo.com/quote/{ticker}",
-                "EDGAR Filings": f"https://www.sec.gov/edgar/browse/?CIK={ticker}"  
+                "EDGAR Filings": f"https://www.sec.gov/edgar/browse/?CIK={ticker}"
             }
             data.append(row)
         except:
@@ -71,104 +58,57 @@ sample_tickers = universe_df['Ticker'].unique().tolist()[:500]
 with st.spinner("Fetching live financials..."):
     financials_df = fetch_metrics(sample_tickers)
 
-# ------------------------
-# Screener Modes Logic
-# ------------------------
-if screener_mode == "Value":
-    financials_df = financials_df.dropna(subset=["P/B Ratio", "ROE (TTM)", "Debt/Equity"])
-    financials_df = financials_df[financials_df["P/B Ratio"] < 1.2]
-    financials_df = financials_df[financials_df["ROE (TTM)"] > 0]
-    sectors = financials_df["Sector"].dropna().unique().tolist()
-    selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
-    filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
+mode_logic = {
+    "Value": lambda df: df.dropna(subset=["P/B Ratio", "ROE (TTM)", "Debt/Equity"]).query("`P/B Ratio` < 1.2 and `ROE (TTM)` > 0"),
+    "Growth": lambda df: df.dropna(subset=["Revenue Growth (YoY)", "EPS Growth (YoY)"]).query("`Revenue Growth (YoY)` > 0.1 and `EPS Growth (YoY)` > 0.1"),
+    "Dividend": lambda df: df.dropna(subset=["Dividend Yield", "ROE (TTM)"]).query("`Dividend Yield` > 0.03 and `ROE (TTM)` > 0 and (`Payout Ratio`.isnull() or `Payout Ratio` < 0.7)"),
+    "Value + Dividend": lambda df: df.dropna(subset=["P/B Ratio", "ROE (TTM)", "Dividend Yield"]).query("`P/B Ratio` < 1.2 and `ROE (TTM)` > 0 and `Dividend Yield` > 0.03 and (`Payout Ratio`.isnull() or `Payout Ratio` < 0.7)")
+}
 
-    st.subheader("📊 Value Screener Results")
-    with st.expander("ℹ️ Column Definitions - Value"):
-        st.markdown("""
-        - **P/B Ratio**: Price-to-Book ratio — how expensive the stock is vs. net asset value  
-        - **ROE (TTM)**: Return on Equity — a profitability measure  
-        - **Debt/Equity**: Leverage ratio — how much debt is used to finance assets  
-        - **Dividend Yield**: Dividend / Price  
-        - **Yahoo Finance** / **EDGAR Filings**: External links  
-        """)
+financials_df = mode_logic[screener_mode](financials_df)
+sectors = financials_df["Sector"].dropna().unique().tolist()
+selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
+filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
 
-    st.dataframe(
-        filtered_df[["Ticker", "Company", "Sector", "P/B Ratio", "ROE (TTM)", "Debt/Equity", "Dividend Yield", "Yahoo Finance", "EDGAR Filings"]],
-        use_container_width=True,
-        hide_index=True
-    )
+st.subheader(f"📊 {screener_mode} Screener Results")
 
-elif screener_mode == "Growth":
-    financials_df = financials_df.dropna(subset=["Revenue Growth (YoY)", "EPS Growth (YoY)"])
-    financials_df = financials_df[financials_df["Revenue Growth (YoY)"] > 0.1]
-    financials_df = financials_df[financials_df["EPS Growth (YoY)"] > 0.1]
-    sectors = financials_df["Sector"].dropna().unique().tolist()
-    selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
-    filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
+# Summary Stats
+st.markdown("### 📌 Screener Summary")
+st.write(f"**Total Stocks:** {len(filtered_df)}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Avg. P/B Ratio", f"{filtered_df['P/B Ratio'].mean():.2f}" if 'P/B Ratio' in filtered_df else "N/A")
+col2.metric("Avg. ROE", f"{filtered_df['ROE (TTM)'].mean():.2%}" if 'ROE (TTM)' in filtered_df else "N/A")
+col3.metric("Avg. Dividend Yield", f"{filtered_df['Dividend Yield'].mean():.2%}" if 'Dividend Yield' in filtered_df else "N/A")
 
-    st.subheader("📈 Growth Screener Results")
-    with st.expander("ℹ️ Column Definitions - Growth"):
-        st.markdown("""
-        - **Revenue Growth (YoY)**: Annual sales growth  
-        - **EPS Growth (YoY)**: Annual earnings growth  
-        - **Yahoo Finance** / **EDGAR Filings**: External links  
-        """)
+# Charts
+st.markdown("### 📈 Sector Breakdown")
+if not filtered_df.empty:
+    sector_counts = filtered_df['Sector'].value_counts()
+    fig1, ax1 = plt.subplots()
+    ax1.bar(sector_counts.index, sector_counts.values)
+    ax1.set_ylabel("Count")
+    ax1.set_title("Stocks by Sector")
+    ax1.tick_params(axis='x', rotation=45)
+    st.pyplot(fig1)
 
-    st.dataframe(
-        filtered_df[["Ticker", "Company", "Sector", "Revenue Growth (YoY)", "EPS Growth (YoY)", "Yahoo Finance", "EDGAR Filings"]],
-        use_container_width=True,
-        hide_index=True
-    )
+    if screener_mode in ["Value", "Dividend", "Value + Dividend"] and "P/B Ratio" in filtered_df and "ROE (TTM)" in filtered_df:
+        st.markdown("### 📉 P/B Ratio vs ROE Scatter")
+        fig2, ax2 = plt.subplots()
+        sns.scatterplot(data=filtered_df, x="P/B Ratio", y="ROE (TTM)", hue="Sector", ax=ax2)
+        ax2.set_title("P/B Ratio vs ROE")
+        st.pyplot(fig2)
 
-elif screener_mode == "Dividend":
-    financials_df = financials_df.dropna(subset=["Dividend Yield", "ROE (TTM)"])
-    financials_df = financials_df[financials_df["Dividend Yield"] > 0.03]
-    financials_df = financials_df[financials_df["ROE (TTM)"] > 0]
-    financials_df = financials_df[(financials_df["Payout Ratio"].isna()) | (financials_df["Payout Ratio"] < 0.7)]
-    sectors = financials_df["Sector"].dropna().unique().tolist()
-    selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
-    filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
+    if "Dividend Yield" in filtered_df.columns:
+        st.markdown("### 📊 Dividend Yield Histogram")
+        fig3, ax3 = plt.subplots()
+        ax3.hist(filtered_df["Dividend Yield"].dropna(), bins=20, color='green', alpha=0.7)
+        ax3.set_title("Distribution of Dividend Yields")
+        ax3.set_xlabel("Dividend Yield")
+        ax3.set_ylabel("Frequency")
+        st.pyplot(fig3)
 
-    st.subheader("💰 Dividend Screener Results")
-    with st.expander("ℹ️ Column Definitions - Dividend"):
-        st.markdown("""
-        - **Dividend Yield**: Annual dividend / price  
-        - **ROE (TTM)**: Profitability metric  
-        - **Payout Ratio**: Dividend payout / earnings (if available) — < 70% preferred  
-        - **Yahoo Finance** / **EDGAR Filings**: External links  
-        """)
-
-    st.dataframe(
-        filtered_df[["Ticker", "Company", "Sector", "Dividend Yield", "ROE (TTM)", "Payout Ratio", "Yahoo Finance", "EDGAR Filings"]],
-        use_container_width=True,
-        hide_index=True
-    )
-
-elif screener_mode == "Value + Dividend":
-    financials_df = financials_df.dropna(subset=["P/B Ratio", "ROE (TTM)", "Dividend Yield"])
-    financials_df = financials_df[financials_df["P/B Ratio"] < 1.2]
-    financials_df = financials_df[financials_df["ROE (TTM)"] > 0]
-    financials_df = financials_df[financials_df["Dividend Yield"] > 0.03]
-    financials_df = financials_df[(financials_df["Payout Ratio"].isna()) | (financials_df["Payout Ratio"] < 0.7)]
-    sectors = financials_df["Sector"].dropna().unique().tolist()
-    selected_sector = st.sidebar.multiselect("Filter by Sector", sectors, default=sectors)
-    filtered_df = financials_df[financials_df["Sector"].isin(selected_sector)]
-
-    st.subheader("📊 Value + Dividend Screener Results")
-    with st.expander("ℹ️ Column Definitions - Value + Dividend"):
-        st.markdown("""
-        - **P/B Ratio**: Undervalued vs. net assets  
-        - **ROE (TTM)**: Profitability  
-        - **Dividend Yield**: Cash yield to shareholders  
-        - **Payout Ratio**: Payout safety signal  
-        - **Yahoo Finance** / **EDGAR Filings**: External links  
-        """)
-
-    st.dataframe(
-        filtered_df[["Ticker", "Company", "Sector", "P/B Ratio", "ROE (TTM)", "Dividend Yield", "Payout Ratio", "Yahoo Finance", "EDGAR Filings"]],
-        use_container_width=True,
-        hide_index=True
-    )
+st.markdown("### 🧾 Screener Table")
+st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
 # ------------------------
 # Download option
