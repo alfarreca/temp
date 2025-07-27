@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
-import matplotlib.pyplot as plt
-import io
+import time
+from datetime import datetime
 
 st.set_page_config(layout="wide")
 
@@ -42,8 +42,7 @@ if uploaded_file:
     # Standardize column names
     df = df.rename(columns={
         'Symbol': 'Ticker',
-        'Exchange': 'Company',
-        'Name': 'Company_Long'  # Optional - keeping both name formats
+        'Exchange': 'Company'
     })
 
     # Clean up ticker names
@@ -53,7 +52,11 @@ if uploaded_file:
     df = df.dropna(subset=['Ticker'])
     df['Ticker'] = df['Ticker'].astype(str).str.upper()
 
-    # Fetch metrics from Yahoo Finance
+    # Limit number of stocks to process (optional)
+    max_stocks = st.slider("Max stocks to analyze (reduce for faster results)", 100, 3000, 500)
+    df = df.head(max_stocks)
+
+    # Fetch metrics from Yahoo Finance with rate limiting
     @st.cache_data
     def fetch_metrics(ticker):
         try:
@@ -67,23 +70,35 @@ if uploaded_file:
                 'Payout Ratio': info.get('payoutRatio'),
                 'Yahoo Finance': f'https://finance.yahoo.com/quote/{ticker}',
                 'EDGAR Filings': f'https://www.sec.gov/edgar/browse/?CIK={ticker}',
-                'EPS Growth': info.get('earningsGrowth', 0),  # Added for Growth mode
-                'Revenue Growth': info.get('revenueGrowth', 0)  # Added for Growth mode
+                'EPS Growth': info.get('earningsGrowth', 0),
+                'Revenue Growth': info.get('revenueGrowth', 0),
+                'Market Cap': info.get('marketCap')
             }
         except Exception as e:
             st.warning(f"Failed to fetch {ticker}: {str(e)}")
-            return {}
+            return None  # Return None to filter out failed requests later
 
-    progress = st.progress(0)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     metrics = []
     tickers = df['Ticker'].unique().tolist()
+    
     for i, ticker in enumerate(tickers):
+        status_text.text(f"Fetching data for {ticker} ({i+1}/{len(tickers)})")
         data = fetch_metrics(ticker)
-        data['Ticker'] = ticker
-        metrics.append(data)
-        progress.progress((i + 1) / len(tickers))
+        if data:  # Only append if data was successfully fetched
+            metrics.append(data)
+        progress_bar.progress((i + 1) / len(tickers))
+        time.sleep(0.5)  # Add delay to avoid rate limiting
 
+    # Filter out None values from failed requests
+    metrics = [m for m in metrics if m is not None]
     df_metrics = pd.DataFrame(metrics)
+    
+    if len(df_metrics) == 0:
+        st.error("Failed to fetch data for any stocks. Please try again later.")
+        st.stop()
+
     final_df = pd.merge(df, df_metrics, on='Ticker', how='inner')
 
     # Filter logic
@@ -114,14 +129,10 @@ if uploaded_file:
     col3.metric("Avg ROE", round(filtered['ROE (TTM)'].mean(), 2))
     col4.metric("Avg Yield", round(filtered['Dividend Yield'].dropna().mean(), 2) if not filtered['Dividend Yield'].dropna().empty else "N/A")
 
-    # Raw data preview
-    with st.expander("📄 Raw Data Preview"):
-        st.dataframe(final_df)
-
     # Final table
     st.subheader("📌 Filtered Results")
     preferred_columns = ['Ticker', 'Company', 'Sector', 'Industry', 'P/B Ratio', 'ROE (TTM)', 'Debt/Equity',
-                         'Dividend Yield', 'Payout Ratio', 'Yahoo Finance', 'EDGAR Filings']
+                         'Dividend Yield', 'Payout Ratio', 'Market Cap', 'Yahoo Finance', 'EDGAR Filings']
     display_columns = [col for col in preferred_columns if col in filtered.columns]
     st.dataframe(filtered[display_columns])
 
@@ -134,30 +145,20 @@ if uploaded_file:
         mime="text/csv"
     )
 
-    # Charts in 2-column layout
-    col1, col2 = st.columns(2)
-    with col1:
-        if 'Sector' in filtered.columns:
-            st.write("📊 Sector Distribution")
-            st.bar_chart(filtered['Sector'].value_counts())
+    # Charts
+    if not filtered.empty:
+        col1, col2 = st.columns(2)
+        with col1:
+            if 'Sector' in filtered.columns:
+                st.write("📊 Sector Distribution")
+                st.bar_chart(filtered['Sector'].value_counts())
 
-    with col2:
-        st.write("📈 P/B vs ROE")
-        fig = px.scatter(filtered, x='P/B Ratio', y='ROE (TTM)', hover_name='Ticker', 
-                        color='Sector' if 'Sector' in filtered.columns else None,
-                        size_max=10)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col1:
-        if "Dividend" in screener_mode:
-            st.write("📉 Dividend Yield Histogram")
-            fig2 = px.histogram(filtered, x='Dividend Yield', nbins=15)
-            st.plotly_chart(fig2, use_container_width=True)
-
-    with col2:
-        if "Dividend" in screener_mode:
-            st.write("🟠 Payout Ratio Histogram")
-            fig3 = px.histogram(filtered, x='Payout Ratio', nbins=15)
-            st.plotly_chart(fig3, use_container_width=True)
+        with col2:
+            st.write("📈 P/B vs ROE")
+            fig = px.scatter(filtered, x='P/B Ratio', y='ROE (TTM)', hover_name='Ticker', 
+                            color='Sector' if 'Sector' in filtered.columns else None,
+                            size='Market Cap' if 'Market Cap' in filtered.columns else None,
+                            size_max=15)
+            st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("Please upload your Russell 3000 Excel file to begin.")
