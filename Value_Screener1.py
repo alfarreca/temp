@@ -204,7 +204,7 @@ def main():
                                  'background: #ffffe6' if x['P/B'] <= 1.2 else '' 
                                  for _ in x],
                         axis=1
-                    ),
+                    )),
                     hide_index=True,
                     use_container_width=True,
                     height=min(600, 35 * (len(display_df) + 1)
