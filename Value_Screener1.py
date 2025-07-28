@@ -1,90 +1,72 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
 
 # App configuration
 st.set_page_config(
     page_title="Value Screener",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-@st.cache_data(ttl=3600)
+@st.cache_data
 def load_data(uploaded_file):
     """Load and preprocess the Excel file"""
-    if uploaded_file is not None:
-        try:
-            df = pd.read_excel(uploaded_file)
-            required_columns = ['Symbol', 'Exchange', 'Sector', 'Industry', 
-                              'Theme', 'Name', 'Country', 'Notes', 'Asset_Type']
-            
-            missing_cols = [col for col in required_columns if col not in df.columns]
-            if missing_cols:
-                st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
-                return None
-            
-            # Fill missing values with 'Unknown'
-            df['Asset_Type'] = df['Asset_Type'].fillna('Unknown')
-            df['Sector'] = df['Sector'].fillna('Unknown')
-            df['Country'] = df['Country'].fillna('Unknown')
-            
-            return df
-        except Exception as e:
-            st.error(f"❌ Error loading file: {str(e)}")
+    try:
+        df = pd.read_excel(uploaded_file)
+        required_cols = ['Symbol', 'Exchange', 'Sector', 'Industry', 
+                        'Theme', 'Name', 'Country', 'Notes', 'Asset_Type']
+        
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            st.error(f"Missing columns: {', '.join(missing)}")
             return None
-    return None
+        
+        # Handle missing values
+        for col in ['Asset_Type', 'Sector', 'Country']:
+            df[col] = df[col].fillna('Unknown')
+            
+        return df
+    except Exception as e:
+        st.error(f"Error loading file: {e}")
+        return None
 
-@st.cache_data(ttl=3600)
+@st.cache_data
 def fetch_financials(ticker):
-    """Fetch financial metrics using yfinance"""
+    """Fetch financial metrics"""
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
-        
-        # Get fundamental data with careful error handling
-        pe = info.get('trailingPE', None)
-        pb = info.get('priceToBook', None)
-        roe = info.get('returnOnEquity', None)
-        
-        # Only return data if we have all required metrics
-        if None not in [pe, pb, roe]:
-            return {
-                'P/E': pe,
-                'P/B': pb,
-                'ROE': roe,
-                'Market Cap': info.get('marketCap', None),
-                'Dividend Yield': info.get('dividendYield', 0)
-            }
-        return None
+        return {
+            'P/E': info.get('trailingPE'),
+            'P/B': info.get('priceToBook'),
+            'ROE': info.get('returnOnEquity'),
+            'Market Cap': info.get('marketCap')
+        }
     except:
         return None
 
 def highlight_undervalued(row):
-    """Helper function for dataframe styling"""
+    """Highlight cells based on P/B ratio"""
+    style = [''] * len(row)
     if row['P/B'] <= 1.0:
-        return ['background-color: #e6ffe6']*len(row)
+        style = ['background-color: #e6ffe6'] * len(row)
     elif row['P/B'] <= 1.2:
-        return ['background-color: #ffffe6']*len(row)
-    else:
-        return ['']*len(row)
+        style = ['background-color: #ffffe6'] * len(row)
+    return style
 
 def main():
     st.title("📊 Value Screener")
     st.markdown("""
-    **Screen for undervalued, profitable companies**  
-    Default filters set to:  
-    - P/B ≤ 1.2 (undervalued stocks)  
-    - ROE > 0% (profitable companies)  
-    - Only showing complete financial data
+    **Find undervalued stocks**  
+    Default filters: P/B ≤ 1.2, ROE > 0%, complete financial data only
     """)
     
     # File upload
     uploaded_file = st.sidebar.file_uploader(
         "Upload Excel File", 
         type=['xlsx', 'xls'],
-        help="Required columns: Symbol, Exchange, Sector, Industry, Theme, Name, Country, Notes, Asset_Type"
+        help="Must contain Symbol, Exchange, Sector, Industry columns"
     )
     
     df = load_data(uploaded_file)
@@ -94,118 +76,76 @@ def main():
         with st.sidebar:
             st.header("Filters")
             
-            # Asset type filter
-            asset_types = ['All'] + sorted(df['Asset_Type'].dropna().unique().tolist())
-            selected_asset_type = st.selectbox("Asset Type", asset_types)
+            asset_types = ['All'] + sorted(df['Asset_Type'].unique().tolist())
+            selected_asset = st.selectbox("Asset Type", asset_types)
             
-            # Sector filter
-            sectors = ['All'] + sorted(df['Sector'].dropna().unique().tolist())
+            sectors = ['All'] + sorted(df['Sector'].unique().tolist())
             selected_sector = st.selectbox("Sector", sectors)
             
-            # Country filter
-            countries = ['All'] + sorted(df['Country'].dropna().unique().tolist())
-            selected_country = st.selectbox("Country", countries)
-            
             st.subheader("Value Metrics")
-            # Updated default values as requested
-            pe_max = st.slider("Max P/E Ratio", 0, 50, 20, 
-                             help="Price-to-Earnings ratio ceiling")
-            pb_max = st.slider("Max P/B Ratio", 0.0, 5.0, 1.2, 0.1,
-                              help="Price-to-Book ratio ceiling (set to 1.2 for undervalued stocks)")
-            roe_min = st.slider("Min ROE (%)", 0, 50, 0,
-                              help="Minimum Return on Equity (set to 0% to filter for profitable companies)")
+            pb_max = st.slider("Max P/B", 0.0, 5.0, 1.2, 0.1)
+            roe_min = st.slider("Min ROE (%)", 0, 50, 0)
         
-        # Apply basic filters
-        filtered_df = df.copy()
-        if selected_asset_type != 'All':
-            filtered_df = filtered_df[filtered_df['Asset_Type'] == selected_asset_type]
+        # Apply filters
+        filtered = df.copy()
+        if selected_asset != 'All':
+            filtered = filtered[filtered['Asset_Type'] == selected_asset]
         if selected_sector != 'All':
-            filtered_df = filtered_df[filtered_df['Sector'] == selected_sector]
-        if selected_country != 'All':
-            filtered_df = filtered_df[filtered_df['Country'] == selected_country]
+            filtered = filtered[filtered['Sector'] == selected_sector]
         
-        # Fetch and filter financial data
-        if not filtered_df.empty:
-            with st.spinner("Fetching financial data (this may take a minute)..."):
-                metrics_data = []
-                valid_symbols = []
+        # Get financial data
+        with st.spinner("Loading financial data..."):
+            results = []
+            for symbol in filtered['Symbol'].unique():
+                data = fetch_financials(symbol)
+                if data and None not in data.values():
+                    data['Symbol'] = symbol
+                    results.append(data)
+            
+            if results:
+                financials = pd.DataFrame(results)
+                merged = pd.merge(filtered, financials, on='Symbol')
                 
-                for symbol in filtered_df['Symbol'].unique():
-                    metrics = fetch_financials(symbol)
-                    if metrics:  # Only include symbols with complete data
-                        metrics['Symbol'] = symbol
-                        metrics_data.append(metrics)
-                        valid_symbols.append(symbol)
+                # Apply value filters
+                undervalued = merged[
+                    (merged['P/B'] <= pb_max) & 
+                    (merged['ROE'] >= roe_min/100)
+                ].sort_values(['P/B', 'ROE'], ascending=[True, False])
                 
-                if metrics_data:
-                    # Merge with original data
-                    metrics_df = pd.DataFrame(metrics_data)
-                    merged_df = pd.merge(
-                        filtered_df[filtered_df['Symbol'].isin(valid_symbols)],
-                        metrics_df,
-                        on='Symbol',
-                        how='inner'  # Only keep rows with financial data
+                # Display results
+                st.subheader(f"Found {len(undervalued)} matches")
+                
+                if not undervalued.empty:
+                    # Format display
+                    display = undervalued[[
+                        'Symbol', 'Name', 'Sector', 
+                        'P/B', 'ROE', 'Market Cap'
+                    ]].copy()
+                    
+                    display['ROE'] = (display['ROE'] * 100).round(1).astype(str) + '%'
+                    display['P/B'] = display['P/B'].round(2)
+                    display['Market Cap'] = display['Market Cap'].apply(
+                        lambda x: f"${x/1e9:.1f}B" if pd.notnull(x) else 'N/A'
                     )
                     
-                    # Apply value filters
-                    value_df = merged_df[
-                        (merged_df['P/E'] <= pe_max) & 
-                        (merged_df['P/B'] <= pb_max) & 
-                        (merged_df['ROE'] >= roe_min/100)
-                    ].sort_values(by=['P/B', 'ROE'], ascending=[True, False])
+                    # Show styled dataframe - fixed indentation here
+                    st.dataframe(
+                        display.style.apply(highlight_undervalued, axis=1),
+                        hide_index=True,
+                        use_container_width=True
+                    )
                     
-                    # Display results
-                    st.subheader(f"🔍 Found {len(value_df)} qualifying companies")
-                    
-                    if not value_df.empty:
-                        # Format display
-                        display_df = value_df[[
-                            'Symbol', 'Name', 'Sector', 'Country',
-                            'P/E', 'P/B', 'ROE', 'Market Cap'
-                        ]].copy()
-                        
-                        display_df['ROE'] = (display_df['ROE'] * 100).round(1).astype(str) + '%'
-                        display_df['P/E'] = display_df['P/E'].round(1)
-                        display_df['P/B'] = display_df['P/B'].round(2)
-                        display_df['Market Cap'] = display_df['Market Cap'].apply(
-                            lambda x: f"${x/1e9:.1f}B" if pd.notnull(x) else 'N/A'
-                        )
-                        
-                        # Display styled dataframe
-                        st.dataframe(
-                            display_df.style.apply(highlight_undervalued, axis=1)),
-                            hide_index=True,
-                            use_container_width=True,
-                            height=min(400, 35*(len(display_df)+1)
-                        )
-                        
-                        # Download
-                        csv = value_df.to_csv(index=False)
-                        st.download_button(
-                            "📥 Download Full Results",
-                            csv,
-                            "undervalued_stocks.csv",
-                            "text/csv",
-                            help="Download complete data including all columns"
-                        )
-                    else:
-                        st.warning("No companies match all your criteria. Try relaxing your filters.")
+                    # Download button
+                    st.download_button(
+                        "Download Results",
+                        undervalued.to_csv(index=False),
+                        "undervalued_stocks.csv",
+                        "text/csv"
+                    )
                 else:
-                    st.error("Couldn't fetch complete financial data for any symbols. Check your data source.")
-        
-        else:
-            st.warning("No companies match your initial filters. Try adjusting sector/country selections.")
-    
-    elif uploaded_file is None:
-        st.info("""
-        ℹ️ **How to use this screener:**
-        1. Upload an Excel file with stock data
-        2. Apply filters using the sidebar
-        3. View undervalued stocks (P/B ≤ 1.2 by default)
-        4. Download results for further analysis
-        
-        Required columns: Symbol, Exchange, Sector, Industry, Theme, Name, Country, Notes, Asset_Type
-        """)
+                    st.warning("No matches found. Try adjusting filters.")
+            else:
+                st.error("Failed to load financial data. Check your symbols.")
 
 if __name__ == "__main__":
     main()
