@@ -173,7 +173,7 @@ def main():
                         
                         # Display styled dataframe
                         st.dataframe(
-                            display_df.style.apply(highlight_undervalued, axis=1),
+                            display_df.style.apply(highlight_undervalued, axis=1)),
                             hide_index=True,
                             use_container_width=True,
                             height=min(400, 35*(len(display_df)+1)
