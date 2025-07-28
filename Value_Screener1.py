@@ -70,6 +70,16 @@ def fetch_yfinance_data(symbol, exchange, attempt=1):
         st.warning(f"Could not fetch data for {symbol}: API rate limit reached. Some metrics may be missing.")
         return None
 
+def get_sorted_sectors(df):
+    """Safely get sorted unique sectors from dataframe"""
+    try:
+        sectors = df['Sector'].dropna().unique()
+        # Convert to string and sort case-insensitive
+        return sorted([str(s) for s in sectors], key=lambda x: x.lower())
+    except Exception as e:
+        st.error(f"Error processing sectors: {str(e)}")
+        return []
+
 # Main app function with improved data fetching
 def main():
     st.title("📊 Universal Stock Screener")
@@ -88,7 +98,13 @@ def main():
     if df is None:
         return
     
-    # Value Screener Configuration (simplified for demo)
+    # Get sectors safely
+    sectors = get_sorted_sectors(df)
+    if not sectors:
+        st.error("No valid sectors found in the data")
+        return
+    
+    # Value Screener Configuration
     st.sidebar.subheader("Value Screener Filters")
     
     pb_range = st.sidebar.slider(
@@ -115,16 +131,19 @@ def main():
         step=1.0
     )
     
-    sectors = st.sidebar.multiselect(
+    selected_sectors = st.sidebar.multiselect(
         "Sectors",
-        options=sorted(df['Sector'].unique()),
-        default=sorted(df['Sector'].unique())
+        options=sectors,
+        default=sectors
     )
     
     if st.sidebar.button("Apply Screening", type="primary"):
         with st.spinner("Fetching stock data (this may take a while due to API limits)..."):
             screened_df = df.copy()
-            screened_df = screened_df[screened_df['Sector'].isin(sectors)]
+            
+            # Apply sector filter first
+            if selected_sectors:
+                screened_df = screened_df[screened_df['Sector'].isin(selected_sectors)]
             
             # Initialize columns for metrics
             screened_df['P/E'] = None
@@ -154,9 +173,9 @@ def main():
             
             # Apply value filters
             screened_df = screened_df[
-                (screened_df['P/B'].between(pb_range[0], pb_range[1])) &
-                (screened_df['P/E'].between(pe_range[0], pe_range[1])) &
-                (screened_df['ROE'].between(roe_range[0], roe_range[1]))
+                (screened_df['P/B'].between(pb_range[0], pb_range[1], na=False)) &
+                (screened_df['P/E'].between(pe_range[0], pe_range[1], na=False)) &
+                (screened_df['ROE'].between(roe_range[0], roe_range[1], na=False))
             ]
             
             # Display results
