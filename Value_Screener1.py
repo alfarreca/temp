@@ -61,6 +61,15 @@ def fetch_financials(ticker):
     except:
         return None
 
+def highlight_undervalued(row):
+    """Helper function for dataframe styling"""
+    if row['P/B'] <= 1.0:
+        return ['background-color: #e6ffe6']*len(row)
+    elif row['P/B'] <= 1.2:
+        return ['background-color: #ffffe6']*len(row)
+    else:
+        return ['']*len(row)
+
 def main():
     st.title("📊 Value Screener")
     st.markdown("""
@@ -162,20 +171,13 @@ def main():
                             lambda x: f"${x/1e9:.1f}B" if pd.notnull(x) else 'N/A'
                         )
                         
-                        # Highlight best values
-                        def highlight_undervalued(row):
-                            if row['P/B'] <= 1.0:
-                                return ['background-color: #e6ffe6']*len(row)
-                            elif row['P/B'] <= 1.2:
-                                return ['background-color: #ffffe6']*len(row)
-                            else:
-                                return ['']*len(row)
-                        
+                        # Display styled dataframe
                         st.dataframe(
                             display_df.style.apply(highlight_undervalued, axis=1),
                             hide_index=True,
                             use_container_width=True,
-                            height=min(400, 35*(len(display_df)+1))
+                            height=min(400, 35*(len(display_df)+1)
+                        )
                         
                         # Download
                         csv = value_df.to_csv(index=False)
