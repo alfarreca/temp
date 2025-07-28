@@ -1,261 +1,241 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from io import BytesIO
-import time
-
-# Check for required packages
-try:
-    import xlsxwriter
-except ImportError:
-    st.error("Missing required package: xlsxwriter. Please install it with `pip install xlsxwriter`")
-    st.stop()
-
-try:
-    import openpyxl
-except ImportError:
-    st.error("Missing required package: openpyxl. Please install it with `pip install openpyxl`")
-    st.stop()
+import io
+from datetime import datetime, timedelta
 
 # App configuration
 st.set_page_config(
-    page_title="Dynamic Stock Screener",
+    page_title="Value Screener",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# Cache data to improve performance
 @st.cache_data(ttl=3600)
 def load_data(uploaded_file):
     """Load and preprocess the Excel file"""
-    try:
-        if uploaded_file.name.endswith('.xlsx'):
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
-        elif uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            st.error("Unsupported file format. Please upload an Excel (.xlsx) or CSV file.")
-            return None
-        
-        # Ensure required columns exist (case-insensitive)
-        required_columns = ['symbol', 'exchange', 'sector', 'industry', 'theme', 
-                           'name', 'country', 'notes', 'asset_type']
-        
-        # Convert column names to lowercase for comparison
-        df.columns = df.columns.str.lower()
-        
-        missing_cols = [col for col in required_columns if col not in df.columns]
-        if missing_cols:
-            st.error(f"Missing required columns: {', '.join(missing_cols)}")
-            return None
+    if uploaded_file is not None:
+        try:
+            df = pd.read_excel(uploaded_file)
+            required_columns = ['Symbol', 'Exchange', 'Sector', 'Industry', 'Theme', 'Name', 'Country', 'Notes', 'Asset_Type']
             
-        # Clean data - convert all sector/country values to strings
-        df['sector'] = df['sector'].astype(str)
-        df['country'] = df['country'].astype(str)
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        return None
+            # Check if all required columns exist
+            missing_cols = [col for col in required_columns if col not in df.columns]
+            if missing_cols:
+                st.warning(f"Missing columns in the uploaded file: {', '.join(missing_cols)}")
+                return None
+            
+            return df
+        except Exception as e:
+            st.error(f"Error loading file: {e}")
+            return None
+    return None
 
 @st.cache_data(ttl=3600)
-def get_yfinance_data(ticker, exchange):
-    """Get additional metrics from yfinance"""
+def fetch_financials(ticker):
+    """Fetch financial metrics using yfinance"""
     try:
-        full_ticker = f"{ticker}.{exchange.lower()}" if exchange else ticker
-        stock = yf.Ticker(full_ticker)
+        stock = yf.Ticker(ticker)
         info = stock.info
         
         metrics = {
-            'pe_ratio': float(info.get('trailingPE', 0)) if info.get('trailingPE') else None,
-            'pb_ratio': float(info.get('priceToBook', 0)) if info.get('priceToBook') else None,
-            'roe': float(info.get('returnOnEquity', 0)) if info.get('returnOnEquity') else None,
-            'market_cap': float(info.get('marketCap', 0)) if info.get('marketCap') else None,
-            'dividend_yield': float(info.get('dividendYield', 0)) if info.get('dividendYield') else None,
-            '52_week_high': float(info.get('fiftyTwoWeekHigh', 0)) if info.get('fiftyTwoWeekHigh') else None,
-            '52_week_low': float(info.get('fiftyTwoWeekLow', 0)) if info.get('fiftyTwoWeekLow') else None
+            'P/E': info.get('trailingPE', None),
+            'P/B': info.get('priceToBook', None),
+            'ROE': info.get('returnOnEquity', None),
+            'Market Cap': info.get('marketCap', None),
+            'Dividend Yield': info.get('dividendYield', None)
         }
-        
-        hist = stock.history(period="1y")
-        if not hist.empty:
-            metrics['price_trend'] = hist['Close'].values.tolist()
-            metrics['volume_trend'] = hist['Volume'].values.tolist()
-        
         return metrics
-    except Exception as e:
-        st.warning(f"Couldn't fetch data for {ticker}: {str(e)}")
+    except:
         return None
 
-def value_screener_filters(available_sectors, available_countries):
-    """Filters for value screener"""
-    st.sidebar.subheader("Value Screener Filters")
-    
-    col1, col2, col3 = st.sidebar.columns(3)
-    
-    with col1:
-        max_pe = st.number_input("Max P/E Ratio", min_value=0, max_value=100, value=15)
-    with col2:
-        max_pb = st.number_input("Max P/B Ratio", min_value=0, max_value=20, value=3, step=1)
-    with col3:
-        min_roe = st.number_input("Min ROE (%)", min_value=0, max_value=100, value=15)
-    
-    st.sidebar.subheader("Additional Filters")
-    sectors = st.sidebar.multiselect("Filter by Sector", options=available_sectors)
-    countries = st.sidebar.multiselect("Filter by Country", options=available_countries)
-    
-    return {
-        'max_pe': max_pe,
-        'max_pb': max_pb,
-        'min_roe': min_roe / 100,
-        'sectors': sectors,
-        'countries': countries
-    }
-
-def apply_value_screener(df, filters):
-    """Apply value screener logic"""
-    filtered_df = df.copy()
-    
-    if filters['sectors']:
-        filtered_df = filtered_df[filtered_df['sector'].isin(filters['sectors'])]
-    if filters['countries']:
-        filtered_df = filtered_df[filtered_df['country'].isin(filters['countries'])]
-    
-    if filtered_df.empty:
-        return filtered_df
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    metrics_data = []
-    total_stocks = len(filtered_df)
-    
-    for i, (_, row) in enumerate(filtered_df.iterrows()):
-        status_text.text(f"Fetching data for {row['symbol']} ({i+1}/{total_stocks})...")
-        progress_bar.progress((i + 1) / total_stocks)
-        
-        metrics = get_yfinance_data(row['symbol'], row.get('exchange'))
-        if metrics:
-            metrics['symbol'] = row['symbol']
-            metrics_data.append(metrics)
-        time.sleep(0.2)
-    
-    progress_bar.empty()
-    status_text.empty()
-    
-    if not metrics_data:
-        st.warning("No financial metrics could be fetched for these stocks.")
-        return pd.DataFrame()
-    
-    metrics_df = pd.DataFrame(metrics_data)
-    filtered_df = filtered_df.merge(metrics_df, on='symbol', how='left')
-    
-    if filters['max_pe'] > 0:
-        filtered_df = filtered_df[(filtered_df['pe_ratio'] <= filters['max_pe']) | 
-                               (filtered_df['pe_ratio'].isna())]
-    
-    if filters['max_pb'] > 0:
-        filtered_df = filtered_df[(filtered_df['pb_ratio'] <= filters['max_pb']) | 
-                               (filtered_df['pb_ratio'].isna())]
-    
-    if filters['min_roe'] > 0:
-        filtered_df = filtered_df[(filtered_df['roe'] >= filters['min_roe']) | 
-                               (filtered_df['roe'].isna())]
-    
-    return filtered_df
-
-def display_results(df, screener_type):
-    """Display the filtered results with metrics"""
-    if df.empty:
-        st.warning("No stocks match your criteria.")
-        return
-    
-    st.subheader(f"{screener_type} Results")
-    st.write(f"Found {len(df)} matching stocks")
-    
-    cols_to_show = ['symbol', 'name', 'sector', 'industry', 'pe_ratio', 
-                   'pb_ratio', 'roe', 'market_cap', 'dividend_yield', 'country']
-    
-    display_df = df[cols_to_show].copy()
-    display_df['market_cap'] = display_df['market_cap'].apply(
-        lambda x: f"${x/1e9:.2f}B" if pd.notnull(x) and x > 0 else "N/A")
-    display_df['dividend_yield'] = display_df['dividend_yield'].apply(
-        lambda x: f"{x*100:.2f}%" if pd.notnull(x) and x > 0 else "N/A")
-    display_df['roe'] = display_df['roe'].apply(
-        lambda x: f"{x*100:.2f}%" if pd.notnull(x) and x > 0 else "N/A")
-    
-    st.dataframe(
-        display_df.sort_values(by='pe_ratio', ascending=True),
-        use_container_width=True,
-        height=600,
-        column_config={
-            "pe_ratio": st.column_config.NumberColumn(format="%.2f"),
-            "pb_ratio": st.column_config.NumberColumn(format="%.2f")
-        }
-    )
-    
-    if 'price_trend' in df.columns and len(df) > 0:
-        st.subheader("Price Trends (1 Year)")
-        cols = st.columns(4)
-        
-        for i, (_, row) in enumerate(df.head(8).iterrows()):
-            with cols[i % 4]:
-                if isinstance(row['price_trend'], list) and len(row['price_trend']) > 0:
-                    st.line_chart(row['price_trend'], use_container_width=True)
-                    st.caption(f"{row['symbol']} - Current: {row['price_trend'][-1]:.2f}")
-    
-    st.subheader("Export Results")
+@st.cache_data(ttl=3600)
+def get_price_history(ticker, period='1y'):
+    """Get price history for sparkline"""
     try:
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Screener_Results')
-        
-        st.download_button(
-            label="📥 Download Excel",
-            data=output.getvalue(),
-            file_name=f"{screener_type.replace(' ', '_')}_Results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-    except Exception as e:
-        st.error(f"Error creating Excel file: {str(e)}")
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period=period)
+        return hist['Close'].values.tolist()
+    except:
+        return None
 
 def main():
-    """Main app function"""
-    st.title("📊 Dynamic Stock Screener")
-    st.write("Upload your stock universe and apply different screening strategies.")
+    st.title("📊 Value Screener")
+    st.markdown("""
+    Screen for stocks with **low P/B**, **low P/E**, and **high ROE** - finding cheap but strong businesses.
+    """)
     
-    uploaded_file = st.file_uploader(
-        "Upload your stock universe (Excel or CSV)", 
-        type=['xlsx', 'csv'],
-        key="file_uploader"
-    )
+    # File upload
+    with st.sidebar:
+        st.header("Data Input")
+        uploaded_file = st.file_uploader(
+            "Upload Excel File", 
+            type=['xlsx', 'xls'],
+            help="Excel file should contain Symbol, Exchange, Sector, Industry, Theme, Name, Country, Notes, Asset_Type columns"
+        )
+        
+        if uploaded_file is not None:
+            st.success("File uploaded successfully!")
     
-    if not uploaded_file:
-        st.info("Please upload a file to begin screening.")
-        return
+    # Load data
+    df = load_data(uploaded_file)
     
-    with st.spinner("Loading data..."):
-        df = load_data(uploaded_file)
-    
-    if df is None:
-        return
-    
-    # Get unique sectors and countries
-    available_sectors = sorted(df['sector'].unique().tolist())
-    available_countries = sorted(df['country'].unique().tolist())
-    
-    screener_type = st.sidebar.selectbox(
-        "Select Screener Type",
-        ["Value Screener", "Growth Screener", "Dividend Screener", "Technical Screener"],
-        index=0
-    )
-    
-    if screener_type == "Value Screener":
-        filters = value_screener_filters(available_sectors, available_countries)
-        with st.spinner("Applying filters and fetching market data..."):
-            filtered_df = apply_value_screener(df, filters)
-        display_results(filtered_df, screener_type)
+    if df is not None:
+        # Filters
+        with st.sidebar:
+            st.header("Filters")
+            
+            # Asset Type filter
+            asset_types = ['All'] + sorted(df['Asset_Type'].unique().tolist())
+            selected_asset_type = st.selectbox(
+                "Asset Type",
+                asset_types,
+                index=0
+            )
+            
+            # Sector filter
+            sectors = ['All'] + sorted(df['Sector'].dropna().unique().tolist())
+            selected_sector = st.selectbox(
+                "Sector",
+                sectors,
+                index=0
+            )
+            
+            # Country filter
+            countries = ['All'] + sorted(df['Country'].dropna().unique().tolist())
+            selected_country = st.selectbox(
+                "Country",
+                countries,
+                index=0
+            )
+            
+            # Value metrics filters
+            st.subheader("Value Metrics")
+            pe_max = st.slider(
+                "Max P/E Ratio", 
+                min_value=0, 
+                max_value=50, 
+                value=15,
+                help="Maximum allowed Price-to-Earnings ratio"
+            )
+            
+            pb_max = st.slider(
+                "Max P/B Ratio", 
+                min_value=0.0, 
+                max_value=5.0, 
+                value=2.0,
+                step=0.1,
+                help="Maximum allowed Price-to-Book ratio"
+            )
+            
+            roe_min = st.slider(
+                "Min ROE (%)", 
+                min_value=0, 
+                max_value=50, 
+                value=15,
+                help="Minimum required Return on Equity"
+            )
+        
+        # Apply filters
+        filtered_df = df.copy()
+        
+        if selected_asset_type != 'All':
+            filtered_df = filtered_df[filtered_df['Asset_Type'] == selected_asset_type]
+        
+        if selected_sector != 'All':
+            filtered_df = filtered_df[filtered_df['Sector'] == selected_sector]
+        
+        if selected_country != 'All':
+            filtered_df = filtered_df[filtered_df['Country'] == selected_country]
+        
+        # Fetch financial metrics for each symbol
+        metrics_data = []
+        symbols_to_remove = []
+        
+        with st.spinner("Fetching financial data..."):
+            for symbol in filtered_df['Symbol'].unique():
+                metrics = fetch_financials(symbol)
+                if metrics:
+                    metrics['Symbol'] = symbol
+                    metrics_data.append(metrics)
+                else:
+                    symbols_to_remove.append(symbol)
+            
+            # Remove symbols where we couldn't fetch metrics
+            filtered_df = filtered_df[~filtered_df['Symbol'].isin(symbols_to_remove)]
+            
+            if metrics_data:
+                metrics_df = pd.DataFrame(metrics_data)
+                merged_df = pd.merge(filtered_df, metrics_df, on='Symbol', how='left')
+                
+                # Apply value filters
+                value_filtered = merged_df[
+                    (merged_df['P/E'] <= pe_max) & 
+                    (merged_df['P/B'] <= pb_max) & 
+                    (merged_df['ROE'] >= roe_min/100)
+                ].sort_values(by=['P/E', 'P/B'])
+                
+                # Display results
+                st.subheader(f"Filtered Results ({len(value_filtered)} companies)")
+                
+                if not value_filtered.empty:
+                    # Add sparklines
+                    with st.spinner("Loading price trends..."):
+                        value_filtered['Price Trend'] = value_filtered['Symbol'].apply(
+                            lambda x: get_price_history(x)
+                        )
+                    
+                    # Display table
+                    cols_to_show = [
+                        'Symbol', 'Name', 'Sector', 'Industry', 'Country',
+                        'P/E', 'P/B', 'ROE', 'Market Cap', 'Dividend Yield', 'Price Trend'
+                    ]
+                    
+                    # Format the DataFrame for display
+                    display_df = value_filtered[cols_to_show].copy()
+                    display_df['ROE'] = (display_df['ROE'] * 100).round(1).astype(str) + '%'
+                    display_df['Dividend Yield'] = (display_df['Dividend Yield'] * 100).round(2).astype(str) + '%' if 'Dividend Yield' in display_df.columns else 'N/A'
+                    display_df['Market Cap'] = display_df['Market Cap'].apply(
+                        lambda x: f"${x/1e9:.2f}B" if pd.notnull(x) else 'N/A'
+                    )
+                    display_df['P/E'] = display_df['P/E'].round(2)
+                    display_df['P/B'] = display_df['P/B'].round(2)
+                    
+                    # Show the table
+                    st.dataframe(
+                        display_df,
+                        column_config={
+                            "Price Trend": st.column_config.LineChartColumn(
+                                "Price Trend (1Y)",
+                                width="medium",
+                                help="1-year price trend",
+                                y_min=0
+                            )
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                    
+                    # Show raw data option
+                    if st.checkbox("Show raw data"):
+                        st.write(value_filtered)
+                    
+                    # Download button
+                    csv = value_filtered.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Download filtered data as CSV",
+                        data=csv,
+                        file_name='value_screener_results.csv',
+                        mime='text/csv'
+                    )
+                else:
+                    st.warning("No companies match your criteria. Try adjusting your filters.")
+            else:
+                st.error("Could not fetch financial metrics for any symbols. Please check your data.")
     else:
-        st.warning(f"{screener_type} is coming soon! Currently only Value Screener is implemented.")
+        st.info("Please upload an Excel file to begin screening.")
 
 if __name__ == "__main__":
     main()
