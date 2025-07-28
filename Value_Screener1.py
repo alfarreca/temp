@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import io
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Configure page
 st.set_page_config(
@@ -38,10 +38,9 @@ def load_data(uploaded_file):
         return None
 
 # Fetch additional metrics from Yahoo Finance
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def fetch_yfinance_data(symbol, exchange):
     try:
-        # Handle symbols with exchange suffixes
         ticker = f"{symbol}.{exchange}" if exchange else symbol
         stock = yf.Ticker(ticker)
         
@@ -57,7 +56,7 @@ def fetch_yfinance_data(symbol, exchange):
             'PEG Ratio': info.get('pegRatio', None),
             'Dividend Yield': info.get('dividendYield', None),
             'Payout Ratio': info.get('payoutRatio', None),
-            'RSI': None,  # Would need calculation
+            'RSI': None,
             'Current Price': info.get('currentPrice', None),
             '52W High': info.get('fiftyTwoWeekHigh', None),
             '52W Low': info.get('fiftyTwoWeekLow', None),
@@ -74,9 +73,9 @@ SCREENER_TYPES = {
     "Value Screener": {
         "description": "Finding cheap but strong businesses",
         "filters": {
-            "P/B": {"type": "slider", "min": 0, "max": 10, "value": (0, 3), "step": 0.1},
-            "P/E": {"type": "slider", "min": 0, "max": 50, "value": (0, 15), "step": 0.5},
-            "ROE": {"type": "slider", "min": 0, "max": 100, "value": (15, 100), "step": 1},
+            "P/B": {"type": "range_slider", "min": 0.0, "max": 10.0, "value": (0.0, 3.0), "step": 0.1},
+            "P/E": {"type": "range_slider", "min": 0.0, "max": 50.0, "value": (0.0, 15.0), "step": 0.5},
+            "ROE": {"type": "range_slider", "min": 0.0, "max": 100.0, "value": (15.0, 100.0), "step": 1.0},
             "Sector": {"type": "multiselect", "options": []},
             "Country": {"type": "multiselect", "options": []}
         }
@@ -84,9 +83,9 @@ SCREENER_TYPES = {
     "Growth Screener": {
         "description": "Identifying fast-growing companies",
         "filters": {
-            "Revenue Growth": {"type": "slider", "min": -50, "max": 200, "value": (20, 200), "step": 1},
-            "EPS Growth": {"type": "slider", "min": -100, "max": 200, "value": (20, 200), "step": 1},
-            "PEG Ratio": {"type": "slider", "min": 0, "max": 5, "value": (0, 1.5), "step": 0.1},
+            "Revenue Growth": {"type": "range_slider", "min": -50.0, "max": 200.0, "value": (20.0, 200.0), "step": 1.0},
+            "EPS Growth": {"type": "range_slider", "min": -100.0, "max": 200.0, "value": (20.0, 200.0), "step": 1.0},
+            "PEG Ratio": {"type": "range_slider", "min": 0.0, "max": 5.0, "value": (0.0, 1.5), "step": 0.1},
             "Sector": {"type": "multiselect", "options": []},
             "Industry": {"type": "multiselect", "options": []}
         }
@@ -94,8 +93,8 @@ SCREENER_TYPES = {
     "Dividend Screener": {
         "description": "Income-focused investing",
         "filters": {
-            "Dividend Yield": {"type": "slider", "min": 0, "max": 20, "value": (3, 20), "step": 0.1},
-            "Payout Ratio": {"type": "slider", "min": 0, "max": 200, "value": (0, 80), "step": 1},
+            "Dividend Yield": {"type": "range_slider", "min": 0.0, "max": 20.0, "value": (3.0, 20.0), "step": 0.1},
+            "Payout Ratio": {"type": "range_slider", "min": 0.0, "max": 200.0, "value": (0.0, 80.0), "step": 1.0},
             "Sector": {"type": "multiselect", "options": []},
             "Asset_Type": {"type": "multiselect", "options": []}
         }
@@ -103,10 +102,10 @@ SCREENER_TYPES = {
     "Technical Screener": {
         "description": "Short-term trading setups",
         "filters": {
-            "RSI": {"type": "slider", "min": 0, "max": 100, "value": (30, 70), "step": 1},
+            "RSI": {"type": "range_slider", "min": 0.0, "max": 100.0, "value": (30.0, 70.0), "step": 1.0},
             "Price vs 50D MA": {"type": "select", "options": ["Above", "Below", "Any"]},
             "Price vs 200D MA": {"type": "select", "options": ["Above", "Below", "Any"]},
-            "Volume Change": {"type": "slider", "min": -100, "max": 500, "value": (20, 500), "step": 5}
+            "Volume Change": {"type": "range_slider", "min": -100.0, "max": 500.0, "value": (20.0, 500.0), "step": 5.0}
         }
     },
     "Thematic Screener": {
@@ -120,12 +119,22 @@ SCREENER_TYPES = {
     }
 }
 
-# Main app function
+def create_slider(filter_name, filter_config):
+    """Helper function to create sliders with proper value handling"""
+    if filter_config["type"] == "range_slider":
+        return st.sidebar.slider(
+            filter_name,
+            min_value=float(filter_config["min"]),
+            max_value=float(filter_config["max"]),
+            value=(float(filter_config["value"][0]), float(filter_config["value"][1])),
+            step=float(filter_config["step"])
+        )
+    return None
+
 def main():
     st.title("📊 Universal Stock Screener")
     st.write("Upload your stock universe and apply different screening strategies")
     
-    # File upload
     uploaded_file = st.sidebar.file_uploader(
         "Upload Stock Universe (Excel/CSV)", 
         type=["xlsx", "csv"],
@@ -136,7 +145,6 @@ def main():
         st.info("Please upload a stock universe file to begin screening")
         return
     
-    # Load data
     df = load_data(uploaded_file)
     if df is None:
         return
@@ -165,14 +173,8 @@ def main():
     filters = {}
     
     for filter_name, filter_config in SCREENER_TYPES[screener_type]["filters"].items():
-        if filter_config["type"] == "slider":
-            filters[filter_name] = st.sidebar.slider(
-                filter_name,
-                min_value=filter_config["min"],
-                max_value=filter_config["max"],
-                value=filter_config["value"],
-                step=filter_config["step"]
-            )
+        if filter_config["type"] == "range_slider":
+            filters[filter_name] = create_slider(filter_name, filter_config)
         elif filter_config["type"] == "multiselect" and filter_config["options"]:
             selected = st.sidebar.multiselect(
                 filter_name,
@@ -186,22 +188,17 @@ def main():
                 options=filter_config["options"]
             )
     
-    # Fetch additional metrics for each stock
     if st.sidebar.button("Apply Screening", type="primary"):
         with st.spinner("Fetching stock data and applying filters..."):
-            # Create a copy of the original dataframe
             screened_df = df.copy()
             
-            # Add columns for metrics we'll fetch
             metrics_to_fetch = list(SCREENER_TYPES[screener_type]["filters"].keys())
             for metric in metrics_to_fetch:
                 if metric not in screened_df.columns:
                     screened_df[metric] = None
             
-            # Add price history column
             screened_df['Price History'] = None
             
-            # Fetch data for each stock
             progress_bar = st.progress(0)
             for i, row in screened_df.iterrows():
                 symbol = row['Symbol']
@@ -218,30 +215,23 @@ def main():
             # Apply filters
             for filter_name, filter_value in filters.items():
                 if filter_name in screened_df.columns:
-                    if isinstance(filter_value, tuple):  # Slider range
+                    if isinstance(filter_value, tuple):  # Range slider
                         min_val, max_val = filter_value
                         screened_df = screened_df[
                             (screened_df[filter_name] >= min_val) & 
                             (screened_df[filter_name] <= max_val)
                         ]
                     elif isinstance(filter_value, list):  # Multiselect
-                        if filter_value:  # Only filter if options are selected
+                        if filter_value:
                             screened_df = screened_df[screened_df[filter_name].isin(filter_value)]
-                    elif isinstance(filter_value, str) and filter_value != "Any":  # Select box
-                        if filter_name == "Price vs 50D MA":
-                            # This would require actual calculation of moving averages
-                            pass
-                        elif filter_name == "Price vs 200D MA":
-                            pass
-                        else:
-                            screened_df = screened_df[screened_df[filter_name] == filter_value]
+                    elif isinstance(filter_value, str) and filter_value != "Any":
+                        screened_df = screened_df[screened_df[filter_name] == filter_value]
             
             # Display results
             st.subheader(f"{screener_type} Results")
             st.write(f"Found {len(screened_df)} stocks matching your criteria")
             
             if not screened_df.empty:
-                # Display important columns
                 display_cols = ['Symbol', 'Name', 'Sector', 'Industry', 'Country'] + metrics_to_fetch
                 display_cols = [col for col in display_cols if col in screened_df.columns]
                 
@@ -251,7 +241,6 @@ def main():
                     height=600
                 )
                 
-                # Add download button
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     screened_df.to_excel(writer, index=False)
@@ -262,11 +251,9 @@ def main():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
                 
-                # Optional: Show charts for a few metrics
                 if 'Price History' in screened_df.columns and not all(screened_df['Price History'].isna()):
                     st.subheader("Price Trends for Selected Stocks")
                     
-                    # Display charts for first 5 stocks
                     for i, row in screened_df.head(5).iterrows():
                         if row['Price History'] is not None:
                             col1, col2 = st.columns([1, 3])
@@ -274,7 +261,6 @@ def main():
                                 st.metric(label=row['Symbol'], value=f"${row.get('Current Price', 'N/A')}")
                                 if 'Dividend Yield' in row:
                                     st.metric("Dividend Yield", f"{row['Dividend Yield']:.2%}" if pd.notna(row['Dividend Yield']) else "N/A")
-                            
                             with col2:
                                 st.line_chart(row['Price History'], use_container_width=True)
 
