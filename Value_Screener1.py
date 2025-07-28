@@ -198,13 +198,14 @@ def main():
                     lambda x: f"${x/1e9:.1f}B" if pd.notnull(x) else 'N/A'
                 )
                 
+                # Fixed indentation here
                 st.dataframe(
                     display_df.style.apply(
                         lambda x: ['background: #e6ffe6' if x['P/B'] <= 1.0 else 
                                  'background: #ffffe6' if x['P/B'] <= 1.2 else '' 
                                  for _ in x],
                         axis=1
-                    )),
+                    ),
                     hide_index=True,
                     use_container_width=True,
                     height=min(600, 35 * (len(display_df) + 1)
@@ -218,7 +219,6 @@ def main():
                 (merged['Dividend Yield'] >= div_min) &
                 (merged['Payout Ratio'].notna()) &
                 (merged['Payout Ratio'] <= payout_max/100)
-            )
             
             if fcf_positive:
                 dividend_filter &= (merged['Free Cash Flow'].notna()) & (merged['Free Cash Flow'] > 0)
@@ -246,10 +246,11 @@ def main():
                     lambda x: f"${x/1e9:.1f}B" if pd.notnull(x) else 'N/A'
                 )
                 
+                # Fixed indentation here
                 st.dataframe(
                     display_df.style.apply(
-                        lambda x: ['background: #e6f3ff' if x['Dividend Yield'] >= '5%' else 
-                                 'background: #f0f7ff' if x['Dividend Yield'] >= '3%' else '' 
+                        lambda x: ['background: #e6f3ff' if float(x['Dividend Yield'].replace('%','')) >= 5 else 
+                                 'background: #f0f7ff' if float(x['Dividend Yield'].replace('%','')) >= 3 else '' 
                                  for _ in x],
                         axis=1
                     ),
