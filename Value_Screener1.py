@@ -4,6 +4,19 @@ import yfinance as yf
 from io import BytesIO
 import time
 
+# Check for required packages
+try:
+    import xlsxwriter
+except ImportError:
+    st.error("Missing required package: xlsxwriter. Please install it with `pip install xlsxwriter`")
+    st.stop()
+
+try:
+    import openpyxl
+except ImportError:
+    st.error("Missing required package: openpyxl. Please install it with `pip install openpyxl`")
+    st.stop()
+
 # App configuration
 st.set_page_config(
     page_title="Dynamic Stock Screener",
@@ -18,7 +31,7 @@ def load_data(uploaded_file):
     """Load and preprocess the Excel file"""
     try:
         if uploaded_file.name.endswith('.xlsx'):
-            df = pd.read_excel(uploaded_file)
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
         elif uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
         else:
@@ -70,7 +83,8 @@ def get_yfinance_data(ticker, exchange):
             metrics['volume_trend'] = hist['Volume'].values.tolist()
         
         return metrics
-    except:
+    except Exception as e:
+        st.warning(f"Couldn't fetch data for {ticker}: {str(e)}")
         return None
 
 def value_screener_filters():
@@ -86,15 +100,31 @@ def value_screener_filters():
     with col3:
         min_roe = st.number_input("Min ROE (%)", min_value=0, max_value=100, value=15)
     
+    # Additional filters
+    st.sidebar.subheader("Additional Filters")
+    sectors = st.sidebar.multiselect("Filter by Sector", options=st.session_state.get('sectors', []))
+    countries = st.sidebar.multiselect("Filter by Country", options=st.session_state.get('countries', []))
+    
     return {
         'max_pe': max_pe,
         'max_pb': max_pb,
-        'min_roe': min_roe / 100  # Convert to decimal
+        'min_roe': min_roe / 100,  # Convert to decimal
+        'sectors': sectors,
+        'countries': countries
     }
 
 def apply_value_screener(df, filters):
     """Apply value screener logic"""
     filtered_df = df.copy()
+    
+    # Apply sector/country filters first to reduce API calls
+    if filters['sectors']:
+        filtered_df = filtered_df[filtered_df['sector'].isin(filters['sectors'])]
+    if filters['countries']:
+        filtered_df = filtered_df[filtered_df['country'].isin(filters['countries'])]
+    
+    if filtered_df.empty:
+        return filtered_df
     
     # Get additional metrics for each stock
     progress_bar = st.progress(0)
@@ -111,6 +141,7 @@ def apply_value_screener(df, filters):
         if metrics:
             metrics['symbol'] = row['symbol']
             metrics_data.append(metrics)
+        time.sleep(0.1)  # Be gentle with the API
     
     progress_bar.empty()
     status_text.empty()
@@ -122,7 +153,7 @@ def apply_value_screener(df, filters):
     metrics_df = pd.DataFrame(metrics_data)
     filtered_df = filtered_df.merge(metrics_df, on='symbol', how='left')
     
-    # Apply filters
+    # Apply financial filters
     if filters['max_pe'] > 0:
         filtered_df = filtered_df[(filtered_df['pe_ratio'] <= filters['max_pe']) | 
                                (filtered_df['pe_ratio'].isna())]
@@ -149,7 +180,7 @@ def display_results(df, screener_type):
     # Display key metrics
     if screener_type == "Value Screener":
         cols_to_show = ['symbol', 'name', 'sector', 'industry', 'pe_ratio', 
-                        'pb_ratio', 'roe', 'market_cap', 'dividend_yield']
+                        'pb_ratio', 'roe', 'market_cap', 'dividend_yield', 'country']
         
         # Format the DataFrame for display
         display_df = df[cols_to_show].copy()
@@ -157,36 +188,46 @@ def display_results(df, screener_type):
             lambda x: f"${x/1e9:.2f}B" if pd.notnull(x) else "N/A")
         display_df['dividend_yield'] = display_df['dividend_yield'].apply(
             lambda x: f"{x*100:.2f}%" if pd.notnull(x) else "N/A")
+        display_df['roe'] = display_df['roe'].apply(
+            lambda x: f"{x*100:.2f}%" if pd.notnull(x) else "N/A")
         
         st.dataframe(
             display_df.sort_values(by='pe_ratio', ascending=True),
             use_container_width=True,
-            height=600
+            height=600,
+            column_config={
+                "pe_ratio": st.column_config.NumberColumn(format="%.2f"),
+                "pb_ratio": st.column_config.NumberColumn(format="%.2f")
+            }
         )
     
     # Add sparkline charts if we have the data
-    if 'price_trend' in df.columns:
-        st.subheader("Price Trends")
+    if 'price_trend' in df.columns and len(df) > 0:
+        st.subheader("Price Trends (1 Year)")
         cols = st.columns(4)
         
         for i, (_, row) in enumerate(df.head(8).iterrows()):
             with cols[i % 4]:
                 if isinstance(row['price_trend'], list):
                     st.line_chart(row['price_trend'], use_container_width=True)
-                    st.caption(f"{row['symbol']} - 1Y Price Trend")
+                    st.caption(f"{row['symbol']} - Current: {row['price_trend'][-1]:.2f}")
     
-    # Add download button
+    # Add download button with error handling
     st.subheader("Export Results")
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Screener_Results')
-    
-    st.download_button(
-        label="Download Excel",
-        data=output.getvalue(),
-        file_name=f"{screener_type.replace(' ', '_')}_Results.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    try:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Screener_Results')
+        
+        st.download_button(
+            label="📥 Download Excel",
+            data=output.getvalue(),
+            file_name=f"{screener_type.replace(' ', '_')}_Results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"Error creating Excel file: {str(e)}")
 
 def main():
     """Main app function"""
@@ -196,7 +237,8 @@ def main():
     # File upload
     uploaded_file = st.file_uploader(
         "Upload your stock universe (Excel or CSV)", 
-        type=['xlsx', 'csv']
+        type=['xlsx', 'csv'],
+        key="file_uploader"
     )
     
     if not uploaded_file:
@@ -204,9 +246,17 @@ def main():
         return
     
     # Load data
-    df = load_data(uploaded_file)
+    with st.spinner("Loading data..."):
+        df = load_data(uploaded_file)
+    
     if df is None:
         return
+    
+    # Store unique sectors and countries for filters
+    if 'sectors' not in st.session_state:
+        st.session_state.sectors = sorted(df['sector'].unique().tolist())
+    if 'countries' not in st.session_state:
+        st.session_state.countries = sorted(df['country'].unique().tolist())
     
     # Screener selection
     screener_type = st.sidebar.selectbox(
@@ -218,7 +268,8 @@ def main():
     # Apply selected screener
     if screener_type == "Value Screener":
         filters = value_screener_filters()
-        filtered_df = apply_value_screener(df, filters)
+        with st.spinner("Applying filters and fetching market data..."):
+            filtered_df = apply_value_screener(df, filters)
         display_results(filtered_df, screener_type)
     else:
         st.warning(f"{screener_type} is coming soon! Currently only Value Screener is implemented.")
